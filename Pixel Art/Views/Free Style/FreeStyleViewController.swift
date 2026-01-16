@@ -1,29 +1,19 @@
-//
-//  FreeStyleViewController.swift
-//  Pixel Art
-//
-//  Created by Hoàng Nguyễn Quag Việt on 13/1/26.
-//
-
 import UIKit
 
 class FreeStyleViewController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-
-        // Do any additional setup after loading the view.
+        view.backgroundColor = .systemBackground
+        title = "Chế độ Tô màu"
+        
+        let label = UILabel()
+        label.text = "Trang vẽ trống \n"
+        label.textColor = .gray
+        label.textAlignment = .center
+        label.numberOfLines = 2
+        label.font = .systemFont(ofSize: 20)
+        label.center = view.center
+        view.addSubview(label)
     }
-    
-
-    /*
-    // MARK: - Navigation
-
-    // In a storyboard-based application, you will often want to do a little preparation before navigation
-    override func prepare(for segue: UIStoryboardSegue, sender: Any?) {
-        // Get the new view controller using segue.destination.
-        // Pass the selected object to the new view controller.
-    }
-    */
-
 }

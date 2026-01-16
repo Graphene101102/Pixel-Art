@@ -1,8 +1,8 @@
-//
-//  PixelData.swift
-//  Pixel Art
-//
-//  Created by Hoàng Nguyễn Quag Việt on 13/1/26.
-//
+import UIKit
 
-import Foundation
+struct PixelData: Equatable {
+    let x, y: Int
+    var number: Int 
+    let rawColor: ColorModel
+    var isColored: Bool
+}
