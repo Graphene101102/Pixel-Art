@@ -7,11 +7,8 @@ class FirebaseManager: ObservableObject {
     
     // Lưu một level mới lên Cloud
     func uploadLevel(level: LevelData, completion: @escaping (Bool) -> Void) {
-        let model = LevelModel(from: level)
-        
         do {
-            // Lưu vào collection tên là "levels"
-            try db.collection("levels").addDocument(from: model)
+            try db.collection("levels").addDocument(from: level)
             print("Đã upload thành công!")
             completion(true)
         } catch {
@@ -26,20 +23,31 @@ class FirebaseManager: ObservableObject {
             .order(by: "createdAt", descending: true)
             .getDocuments { snapshot, error in
                 guard let documents = snapshot?.documents, error == nil else {
-                    print("Lỗi tải dữ liệu")
+                    print("Lỗi tải dữ liệu level")
                     completion([])
                     return
                 }
-                
-                // Map từng document thành LevelModel -> rồi thành LevelData
                 let levels = documents.compactMap { doc -> LevelData? in
-                    if let model = try? doc.data(as: LevelModel.self) {
-                        return LevelData(from: model)
-                    }
-                    return nil
+                    return try? doc.data(as: LevelData.self)
                 }
-                
                 completion(levels)
             }
+    }
+    
+    // [MỚI] Tải danh sách danh mục từ collection "categories"
+    // Collection này trên Firebase cần có các document, mỗi document có field "name": "Tên danh mục"
+    func fetchCategories(completion: @escaping ([String]) -> Void) {
+        db.collection("categories").order(by: "name").getDocuments { snapshot, error in
+            guard let documents = snapshot?.documents, error == nil else {
+                print("Lỗi tải category hoặc chưa có collection 'categories'")
+                completion([])
+                return
+            }
+            
+            let categories = documents.compactMap { doc -> String? in
+                return doc.data()["name"] as? String
+            }
+            completion(categories)
+        }
     }
 }

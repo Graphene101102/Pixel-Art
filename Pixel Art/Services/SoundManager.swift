@@ -3,28 +3,12 @@ import AVFoundation
 class SoundManager {
     static let shared = SoundManager()
     
-    var musicPlayer: AVAudioPlayer?
-    var sfxPlayer: AVAudioPlayer?
+    private var audioPlayer: AVAudioPlayer?
+    var isMuted: Bool = false
     
-    var isMusicOn: Bool = true
-    
-    var isMuted: Bool = false {
-        didSet {
-            if isMuted {
-                musicPlayer?.pause()
-            } else {
-                if isMusicOn { musicPlayer?.play() }
-            }
-        }
-    }
-    
-    init() {
-        setupAudioSession()
-    }
-
-    func setupAudioSession() {
+    private init() {
+        // Cấu hình để nhạc không bị ngắt bởi chế độ im lặng (Silent mode) của iPhone
         do {
-            // Cho phép phát nhạc ngay cả khi bật chế độ Rung/Silent
             try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
             try AVAudioSession.sharedInstance().setActive(true)
         } catch {
@@ -32,50 +16,52 @@ class SoundManager {
         }
     }
     
-    // 1. Phát nhạc nền
-    func playBackgroundMusic(filename: String = "bgm", extensionName: String = "mp3") {
-        if let player = musicPlayer, player.isPlaying { return }
+    func playBackgroundMusic() {
+        // Nếu đang mute thì không phát
+        if isMuted { return }
         
-        guard let url = Bundle.main.url(forResource: filename, withExtension: extensionName) else {
-            print("Không tìm thấy file nhạc nền")
+        // 1. Nếu đang phát rồi -> Bỏ qua (Không phát lại từ đầu)
+        if let player = audioPlayer, player.isPlaying {
+            return
+        }
+        
+        // 2. Nếu đã có player (đang Pause) -> Resume (Phát tiếp)
+        if let player = audioPlayer {
+            player.play()
+            return
+        }
+        
+        // 3. Nếu chưa có (Lần đầu) -> Khởi tạo và phát
+        guard let url = Bundle.main.url(forResource: "bgm", withExtension: "mp3") else {
+            print("⚠️ Không tìm thấy file nhạc!")
             return
         }
         
         do {
-            musicPlayer = try AVAudioPlayer(contentsOf: url)
-            musicPlayer?.numberOfLoops = -1 // Lặp vô hạn
-            musicPlayer?.volume = 0.5
-            
-            if !isMuted && isMusicOn {
-                musicPlayer?.play()
-            }
+            audioPlayer = try AVAudioPlayer(contentsOf: url)
+            audioPlayer?.numberOfLoops = -1 // Lặp vô tận
+            audioPlayer?.volume = 0.5       // Âm lượng vừa phải
+            audioPlayer?.prepareToPlay()
+            audioPlayer?.play()
         } catch {
-            print("Lỗi phát nhạc: \(error.localizedDescription)")
+            print("Lỗi khởi tạo nhạc: \(error.localizedDescription)")
         }
     }
     
-    // 2. Hàm dừng nhạc nền 
+    // Tạm dừng (giữ vị trí phát)
+    func pauseBackgroundMusic() {
+        if let player = audioPlayer, player.isPlaying {
+            player.pause()
+        }
+    }
+    
+    // Hàm này tắt hẳn (reset về 0)
     func stopBackgroundMusic() {
-        musicPlayer?.stop()
-        musicPlayer?.currentTime = 0 // Reset về đầu bài
-    }
-    
-    // 3. Phát hiệu ứng âm thanh
-    func playSoundEffect(filename: String = "paint", extensionName: String = "wav") {
-        guard !isMuted else { return }
-        guard let url = Bundle.main.url(forResource: filename, withExtension: extensionName) else { return }
-        
-        do {
-            sfxPlayer = try AVAudioPlayer(contentsOf: url)
-            sfxPlayer?.volume = 1.0
-            sfxPlayer?.play()
-        } catch {
-            print("Lỗi SFX: \(error.localizedDescription)")
-        }
+        audioPlayer?.stop()
+        audioPlayer?.currentTime = 0
     }
     
     func toggleMute() {
         isMuted.toggle()
-        isMusicOn = !isMuted
     }
 }

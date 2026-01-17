@@ -9,6 +9,7 @@ class GameViewModel {
     let isComplete = PassthroughSubject<Void, Never>()
     let isMusicOn = CurrentValueSubject<Bool, Never>(true)
     let isMagicWandMode = CurrentValueSubject<Bool, Never>(false)
+    let resetZoomRequest = PassthroughSubject<Void, Never>()
     
     // Báo cho View biết cần vẽ lại những pixel nào
     let changesSubject = PassthroughSubject<[Int], Never>()
@@ -148,6 +149,16 @@ class GameViewModel {
             checkWin(lvl: currentLvl)
         }
     }
+    
+    // MARK: - Xử lý nút Fit
+        func triggerFitToScreen() {
+            resetZoomRequest.send()
+        }
+        
+    // MARK: -  Xử lý nút Check
+        func triggerCheckButton() {
+            isComplete.send()
+        }
     
     // MARK: - Kiểm tra hoàn thành
     private func checkWin(lvl: LevelData) {

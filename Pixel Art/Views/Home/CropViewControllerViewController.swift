@@ -1,11 +1,15 @@
 import UIKit
 
-class CropViewController: UIViewController, UIScrollViewDelegate {
+class CropViewController: UIViewController, UIScrollViewDelegate, UIPickerViewDelegate, UIPickerViewDataSource {
     
     // --- Data ---
     private let originalImage: UIImage
-    // Callback trả về ảnh đã cắt và tên cho HomeVC xử lý
-    var onDidCrop: ((UIImage, String) -> Void)?
+    // Callback trả về: (Ảnh đã cắt, Tên level, Danh mục)
+    var onDidCrop: ((UIImage, String, String) -> Void)?
+    
+    // Dữ liệu danh mục (Bỏ "Tất cả" vì khi tạo mới phải chọn 1 cái cụ thể)
+    private let categories = ["Động vật", "Đồ ăn", "Phong cảnh", "Nhân vật", "Khác"]
+    private var selectedCategory = "Khác"
     
     // --- UI Elements ---
     private let titleLabel: UILabel = {
@@ -24,12 +28,25 @@ class CropViewController: UIViewController, UIScrollViewDelegate {
         return tf
     }()
     
-    // Khung nhìn crop (Hình vuông)
+    // UI chọn danh mục
+    private let categoryTextField: UITextField = {
+        let tf = UITextField()
+        tf.placeholder = "Chọn danh mục"
+        tf.borderStyle = .roundedRect
+        tf.textAlignment = .center
+        tf.text = "Khác" // Giá trị mặc định
+        tf.tintColor = .clear // Ẩn con trỏ nhấp nháy
+        return tf
+    }()
+    
+    private let categoryPicker = UIPickerView()
+    
+    // Khung nhìn crop
     private let cropContainerView: UIView = {
         let v = UIView()
         v.backgroundColor = .white
         v.layer.borderWidth = 2
-        v.layer.borderColor = UIColor.yellow.cgColor // Viền vàng để dễ căn
+        v.layer.borderColor = UIColor.yellow.cgColor
         v.clipsToBounds = true
         return v
     }()
@@ -75,6 +92,22 @@ class CropViewController: UIViewController, UIScrollViewDelegate {
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .systemBackground
+        
+        // Cấu hình PickerView
+        categoryPicker.delegate = self
+        categoryPicker.dataSource = self
+        // Gán picker làm bàn phím cho textfield
+        categoryTextField.inputView = categoryPicker
+        
+        // Thêm toolbar có nút "Xong" cho Picker
+        let toolbar = UIToolbar()
+        toolbar.sizeToFit()
+        let flexSpace = UIBarButtonItem(barButtonSystemItem: .flexibleSpace, target: nil, action: nil)
+        let doneBtn = UIBarButtonItem(title: "Xong", style: .done, target: self, action: #selector(dismissKeyboard))
+        toolbar.setItems([flexSpace, doneBtn], animated: true)
+        categoryTextField.inputAccessoryView = toolbar
+        nameTextField.inputAccessoryView = toolbar // Thêm nút xong cho cả ô nhập tên
+        
         setupUI()
         setupImageInScrollView()
     }
@@ -84,31 +117,39 @@ class CropViewController: UIViewController, UIScrollViewDelegate {
         // Add Subviews
         view.addSubview(titleLabel)
         view.addSubview(nameTextField)
+        view.addSubview(categoryTextField) // Thêm ô chọn danh mục
         view.addSubview(cropContainerView)
-        cropContainerView.addSubview(scrollView) // ScrollView nằm trong Container
+        cropContainerView.addSubview(scrollView)
         scrollView.addSubview(imageView)
         view.addSubview(hintLabel)
         view.addSubview(saveButton)
         
         // Disable AutoResizingMask
-        [titleLabel, nameTextField, cropContainerView, scrollView, imageView, hintLabel, saveButton].forEach {
+        [titleLabel, nameTextField, categoryTextField, cropContainerView, scrollView, imageView, hintLabel, saveButton].forEach {
             $0.translatesAutoresizingMaskIntoConstraints = false
         }
         
-        // Layout
-        let cropSize: CGFloat = 300 // Kích thước khung vuông crop
+        // Layout Constraints
+        let cropSize: CGFloat = 300
         
         NSLayoutConstraint.activate([
             titleLabel.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 20),
             titleLabel.centerXAnchor.constraint(equalTo: view.centerXAnchor),
             
+            // Ô Nhập Tên
             nameTextField.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 20),
             nameTextField.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 40),
             nameTextField.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -40),
             nameTextField.heightAnchor.constraint(equalToConstant: 40),
             
-            // Container hình vuông ở giữa
-            cropContainerView.topAnchor.constraint(equalTo: nameTextField.bottomAnchor, constant: 20),
+            // Ô Chọn Danh Mục (Nằm ngay dưới tên)
+            categoryTextField.topAnchor.constraint(equalTo: nameTextField.bottomAnchor, constant: 12),
+            categoryTextField.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 40),
+            categoryTextField.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -40),
+            categoryTextField.heightAnchor.constraint(equalToConstant: 40),
+            
+            // Khung Crop (Nằm dưới danh mục)
+            cropContainerView.topAnchor.constraint(equalTo: categoryTextField.bottomAnchor, constant: 20),
             cropContainerView.centerXAnchor.constraint(equalTo: view.centerXAnchor),
             cropContainerView.widthAnchor.constraint(equalToConstant: cropSize),
             cropContainerView.heightAnchor.constraint(equalToConstant: cropSize),
@@ -136,6 +177,7 @@ class CropViewController: UIViewController, UIScrollViewDelegate {
         view.addGestureRecognizer(tap)
     }
     
+    // --- Image Setup ---
     private func setupImageInScrollView() {
         scrollView.delegate = self
         imageView.image = originalImage
@@ -143,22 +185,19 @@ class CropViewController: UIViewController, UIScrollViewDelegate {
         imageView.frame = CGRect(origin: .zero, size: originalImage.size)
         scrollView.contentSize = originalImage.size
         
-        // Tính toán scale ban đầu để ảnh vừa khít hoặc bao phủ khung
         let cropSize: CGFloat = 300
         let scaleWidth = cropSize / originalImage.size.width
         let scaleHeight = cropSize / originalImage.size.height
-        let minScale = max(scaleWidth, scaleHeight) // Dùng max để ảnh luôn lấp đầy (Aspect Fill)
+        let minScale = max(scaleWidth, scaleHeight)
         
         scrollView.minimumZoomScale = minScale
         scrollView.maximumZoomScale = 5.0
         scrollView.zoomScale = minScale
         
-        // Căn giữa ảnh ban đầu
         centerImage()
     }
     
     private func centerImage() {
-        // Căn giữa scrollview
         let boundsSize = scrollView.bounds.size
         var contentsFrame = imageView.frame
         
@@ -177,7 +216,7 @@ class CropViewController: UIViewController, UIScrollViewDelegate {
         imageView.frame = contentsFrame
     }
     
-    // UIScrollViewDelegate
+    // --- ScrollView Delegate ---
     func viewForZooming(in scrollView: UIScrollView) -> UIView? {
         return imageView
     }
@@ -186,35 +225,61 @@ class CropViewController: UIViewController, UIScrollViewDelegate {
         centerImage()
     }
     
-    // MARK: - Logic Cắt ảnh
+    // --- UIPickerView Delegate & DataSource ---
+    func numberOfComponents(in pickerView: UIPickerView) -> Int {
+        return 1
+    }
+    
+    func pickerView(_ pickerView: UIPickerView, numberOfRowsInComponent component: Int) -> Int {
+        return categories.count
+    }
+    
+    func pickerView(_ pickerView: UIPickerView, titleForRow row: Int, forComponent component: Int) -> String? {
+        return categories[row]
+    }
+    
+    func pickerView(_ pickerView: UIPickerView, didSelectRow row: Int, inComponent component: Int) {
+        selectedCategory = categories[row]
+        categoryTextField.text = selectedCategory
+    }
+    
+    // --- Logic Save ---
     @objc private func didTapSave() {
+        // Validate tên
         guard let name = nameTextField.text, !name.trimmingCharacters(in: .whitespaces).isEmpty else {
-            // Rung báo lỗi nếu chưa nhập tên
-            let animation = CAKeyframeAnimation(keyPath: "transform.translation.x")
-            animation.timingFunction = CAMediaTimingFunction(name: .linear)
-            animation.duration = 0.6
-            animation.values = [-20.0, 20.0, -20.0, 20.0, -10.0, 10.0, -5.0, 5.0, 0.0 ]
-            nameTextField.layer.add(animation, forKey: "shake")
+            shakeView(nameTextField)
             return
         }
         
-        // Thực hiện CROP
+        // Validate category (đề phòng rỗng)
+        if categoryTextField.text?.isEmpty ?? true {
+            shakeView(categoryTextField)
+            return
+        }
+        
         if let croppedImage = cropImage() {
-            // Trả về HomeVC
-            onDidCrop?(croppedImage, name)
+            // Gọi callback trả về HomeVC
+            onDidCrop?(croppedImage, name, selectedCategory)
             navigationController?.popViewController(animated: true)
         }
     }
     
     private func cropImage() -> UIImage? {
-        // Lấy đúng những gì đang hiển thị trong ScrollView:
         let renderer = UIGraphicsImageRenderer(size: scrollView.bounds.size)
         let image = renderer.image { context in
-            // Dịch chuyển context ngược lại với offset của scrollview để chụp đúng vùng
             context.cgContext.translateBy(x: -scrollView.contentOffset.x, y: -scrollView.contentOffset.y)
             scrollView.layer.render(in: context.cgContext)
         }
         return image
+    }
+    
+    // Hiệu ứng rung lắc khi lỗi
+    private func shakeView(_ viewToShake: UIView) {
+        let animation = CAKeyframeAnimation(keyPath: "transform.translation.x")
+        animation.timingFunction = CAMediaTimingFunction(name: .linear)
+        animation.duration = 0.6
+        animation.values = [-20.0, 20.0, -20.0, 20.0, -10.0, 10.0, -5.0, 5.0, 0.0 ]
+        viewToShake.layer.add(animation, forKey: "shake")
     }
     
     @objc func dismissKeyboard() {
