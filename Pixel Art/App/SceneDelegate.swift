@@ -15,7 +15,7 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         
         // 3. Khởi tạo màn hình chính (HomeViewController)
         // Dùng UINavigationController để có thanh điều hướng chuyển màn hình
-        let rootVC = StartViewController()
+        let rootVC = SplashViewController()
         let navigationController = UINavigationController(rootViewController: rootVC)
         
         // Cấu hình thanh điều hướng trong suốt hoặc trắng cho đẹp
@@ -28,7 +28,7 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         navigationController.navigationBar.scrollEdgeAppearance = appearance
         
         // 4. Gán làm root và hiển thị
-        window.rootViewController = MainTabController()
+        window.rootViewController = rootVC
         self.window = window
         window.makeKeyAndVisible()
         

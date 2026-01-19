@@ -1,7 +1,7 @@
 import UIKit
 
 class CustomTabBar: UITabBar {
-    private let customHeight: CGFloat = 90
+    private let customHeight: CGFloat = 60
     override func sizeThatFits(_ size: CGSize) -> CGSize {
         var sizeThatFits = super.sizeThatFits(size)
         sizeThatFits.height = customHeight + (UIApplication.shared.windows.first?.safeAreaInsets.bottom ?? 0)
@@ -10,21 +10,21 @@ class CustomTabBar: UITabBar {
 }
 
 class MainTabController: UITabBarController, ImportPhotoPopupDelegate {
-
+    
     private let middleButton: UIButton = {
         let btn = UIButton(type: .custom)
-        let config = UIImage.SymbolConfiguration(pointSize: 28, weight: .bold)
+        let config = UIImage.SymbolConfiguration(pointSize: 24, weight: .bold)
         btn.setImage(UIImage(systemName: "plus", withConfiguration: config), for: .normal)
         btn.backgroundColor = UIColor(hex: "#3475CB")
         btn.tintColor = .white
-        btn.layer.cornerRadius = 28
+        btn.layer.cornerRadius = 24
         btn.layer.shadowColor = UIColor(hex: "#3475CB").cgColor
         btn.layer.shadowOpacity = 0.4
-        btn.layer.shadowOffset = CGSize(width: 0, height: 4)
-        btn.layer.shadowRadius = 6
+        btn.layer.shadowOffset = CGSize(width: 0, height: 3)
+        btn.layer.shadowRadius = 4
         return btn
     }()
-
+    
     override func viewDidLoad() {
         super.viewDidLoad()
         setValue(CustomTabBar(), forKey: "tabBar")
@@ -51,22 +51,21 @@ class MainTabController: UITabBarController, ImportPhotoPopupDelegate {
         let settingsVC = UIViewController()
         settingsVC.view.backgroundColor = .white
         settingsVC.tabBarItem = UITabBarItem(title: nil, image: UIImage(systemName: "gearshape"), selectedImage: nil)
-
-        let verticalOffset: CGFloat = 38
-        let itemInsets = UIEdgeInsets(top: verticalOffset, left: 0, bottom: -verticalOffset, right: 0)
+        
+        let itemInsets = UIEdgeInsets(top: 6, left: 0, bottom: -6, right: 0)
         for item in [homeNav, clipboardVC, galleryNav, settingsVC] {
             item.tabBarItem.imageInsets = itemInsets
         }
-
+        
         viewControllers = [homeNav, clipboardVC, placeholderVC, galleryNav, settingsVC]
         
         tabBar.backgroundColor = .white
         tabBar.tintColor = UIColor(hex: "#3475CB")
         tabBar.unselectedItemTintColor = UIColor(hex: "#828282")
         tabBar.layer.shadowColor = UIColor.black.cgColor
-        tabBar.layer.shadowOpacity = 0.1
-        tabBar.layer.shadowOffset = CGSize(width: 0, height: -4)
-        tabBar.layer.shadowRadius = 10
+        tabBar.layer.shadowOpacity = 0.05
+        tabBar.layer.shadowOffset = CGSize(width: 0, height: -2)
+        tabBar.layer.shadowRadius = 5
         tabBar.backgroundImage = UIImage()
         tabBar.shadowImage = UIImage()
     }
@@ -76,7 +75,7 @@ class MainTabController: UITabBarController, ImportPhotoPopupDelegate {
         middleButton.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
             middleButton.centerXAnchor.constraint(equalTo: tabBar.centerXAnchor),
-            middleButton.topAnchor.constraint(equalTo: tabBar.topAnchor, constant: 38),
+            middleButton.topAnchor.constraint(equalTo: tabBar.topAnchor, constant: 6),
             middleButton.widthAnchor.constraint(equalToConstant: 56),
             middleButton.heightAnchor.constraint(equalToConstant: 56)
         ])
@@ -86,6 +85,16 @@ class MainTabController: UITabBarController, ImportPhotoPopupDelegate {
     
     // Action Nút Giữa: Mở Popup chọn ảnh
     @objc private func didTapMiddleButton() {
+        // Hiệu ứng nhún
+        UIView.animate(withDuration: 0.1, animations: {
+            self.middleButton.transform = CGAffineTransform(scaleX: 0.9, y: 0.9)
+        }) { _ in
+            UIView.animate(withDuration: 0.1) {
+                self.middleButton.transform = .identity
+            }
+        }
+        
+        // Mở pop up
         let popup = ImportPhotoPopupViewController()
         popup.modalPresentationStyle = .overFullScreen
         popup.delegate = self

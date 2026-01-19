@@ -189,13 +189,29 @@ class HomeViewController: UIViewController, UnlockLevelDelegate, ImportPhotoPopu
     
     // MARK: - Logic Data
     private func loadData() {
+        if AppData.shared.hasDataLoaded {
+            // 1. Lấy Categories
+            self.categories = AppData.shared.preloadedCategories
+            self.categoryCollectionView.reloadData()
+            
+            // 2. Lấy Levels và Merge với Local Save
+            let rawLevels = AppData.shared.preloadedLevels
+            self.allLevels = rawLevels.map { GameStorageManager.shared.loadLevelProgress(originalLevel: $0) }
+            
+            // 3. Hiển thị
+            self.filterLevels()
+            
+            return
+        }
+        
+        // --- Nếu vào thẳng Home mà không qua Splash thì load từ firebase ---
+        print("⚠️ Fetching data directly in Home")
         loadingIndicator.startAnimating()
         let group = DispatchGroup()
         
         group.enter()
         FirebaseManager.shared.fetchLevels { [weak self] firebaseLevels in
             guard let self = self else { return }
-            // Merge với local save để lấy tiến độ tô màu
             self.allLevels = firebaseLevels.map { GameStorageManager.shared.loadLevelProgress(originalLevel: $0) }
             group.leave()
         }
@@ -260,18 +276,32 @@ class HomeViewController: UIViewController, UnlockLevelDelegate, ImportPhotoPopu
             let newId = UUID().uuidString
             let defaultName = "Pixel Art \(Int.random(in: 100...999))"
             
-            if var newLevel = ImageProcessor.shared.processImage(image: image, imageId: newId, targetDimension: 48) {
+            // 1. Xử lý ảnh
+            if var newLevel = ImageProcessor.shared.processImage(image: image, imageId: newId, targetDimension: 64) {
                 newLevel.name = defaultName
                 newLevel.category = category
+                newLevel.createdAt = Date()
                 
+                // 2. Upload lên Firebase
                 FirebaseManager.shared.uploadLevel(level: newLevel) { [weak self] success in
                     DispatchQueue.main.async {
+                        // Cho phép tương tác lại ngay
                         self?.view.isUserInteractionEnabled = true
+                        self?.loadingIndicator.stopAnimating() // Tắt loading ngay
+                        
                         if success {
-                            // Upload xong vào chơi luôn
-                            self?.startGame(level: newLevel)
+                            print("✅ Upload thành công - Cập nhật HomeView ngay lập tức")
+                            
+                            self?.allLevels.insert(newLevel, at: 0)
+                            
+                            self?.filterLevels()
+                            
+                            self?.mainCollectionView.setContentOffset(.zero, animated: true)
+                            
                         } else {
-                            self?.loadingIndicator.stopAnimating()
+                            let alert = UIAlertController(title: "Lỗi", message: "Không thể upload, vui lòng thử lại.", preferredStyle: .alert)
+                            alert.addAction(UIAlertAction(title: "OK", style: .default))
+                            self?.present(alert, animated: true)
                         }
                     }
                 }
@@ -281,8 +311,7 @@ class HomeViewController: UIViewController, UnlockLevelDelegate, ImportPhotoPopu
                     self.loadingIndicator.stopAnimating()
                 }
             }
-        }
-    }
+        }    }
     
     // MARK: - Game Logic
     private func startGame(level: LevelData) {
