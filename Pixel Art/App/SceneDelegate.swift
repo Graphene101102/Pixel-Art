@@ -28,7 +28,7 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         navigationController.navigationBar.scrollEdgeAppearance = appearance
         
         // 4. Gán làm root và hiển thị
-        window.rootViewController = navigationController
+        window.rootViewController = MainTabController()
         self.window = window
         window.makeKeyAndVisible()
         

@@ -3,49 +3,76 @@ import Combine
 
 class GameViewModel {
     
-    // MARK: - OUTPUT (Dữ liệu gửi ra View)
+    // MARK: - Properties
     let levelSubject: CurrentValueSubject<LevelData, Never>
     let selectedColorIndex = CurrentValueSubject<Int, Never>(0)
     let isComplete = PassthroughSubject<Void, Never>()
     let isMusicOn = CurrentValueSubject<Bool, Never>(true)
     let isMagicWandMode = CurrentValueSubject<Bool, Never>(false)
     let resetZoomRequest = PassthroughSubject<Void, Never>()
-    
-    // Báo cho View biết cần vẽ lại những pixel nào
     let changesSubject = PassthroughSubject<[Int], Never>()
     
-    // MARK: - INTERNAL STATE
     var currentNumber: Int { selectedColorIndex.value + 1 }
     
-    // MARK: - INIT
+    // [QUAN TRỌNG] Timer để hẹn giờ lưu file (tránh lưu liên tục gây lag)
+    private var saveTimer: Timer?
+    
+    // MARK: - ITEM STORAGE (User Defaults)
+    var magicWandCount: Int {
+        get { UserDefaults.standard.object(forKey: "magicWandCount") as? Int ?? 3 }
+        set { UserDefaults.standard.set(newValue, forKey: "magicWandCount") }
+    }
+    
+    var searchItemCount: Int {
+        get { UserDefaults.standard.object(forKey: "searchItemCount") as? Int ?? 3 }
+        set { UserDefaults.standard.set(newValue, forKey: "searchItemCount") }
+    }
+    
+    enum ItemType { case magicWand, search }
+    
+    // MARK: - Init
     init(level: LevelData) {
         self.levelSubject = CurrentValueSubject(level)
     }
     
-    // MARK: - LOGIC TÔ MÀU (INPUT MỚI)
-    // Hàm này nhận trực tiếp Index từ CanvasView (đã được tính toán chuẩn xác)
-    func handleTap(atIndex index: Int) {
-        var currentLvl = levelSubject.value
-        
-        // 1. Kiểm tra index hợp lệ
-        guard index >= 0 && index < currentLvl.pixels.count else { return }
-        
-        let pixel = currentLvl.pixels[index]
-        
-        // 2. Kiểm tra logic tô màu
-        if !pixel.isColored && pixel.number == currentNumber {
-            attemptToColor(index: index)
-        } else {
-            // Rung báo lỗi nếu chọn sai
-            if !pixel.isColored && pixel.number > 0 {
-                UINotificationFeedbackGenerator().notificationOccurred(.error)
+    // MARK: - ITEM LOGIC
+    func tryUseMagicWand() -> Bool {
+        if magicWandCount > 0 {
+            magicWandCount -= 1
+            triggerSmartMagic()
+            return true
+        }
+        return false
+    }
+    
+    func tryUseSearch() -> Bool {
+        if searchItemCount > 0 {
+            if let _ = findUncoloredPixelIndex() {
+                searchItemCount -= 1
+                return true
             }
+        }
+        return false
+    }
+    
+    func rewardItems(type: ItemType, amount: Int = 3) {
+        switch type {
+        case .magicWand: magicWandCount += amount
+        case .search: searchItemCount += amount
         }
     }
     
-    // Hàm thực hiện tô màu và báo về View
-    func attemptToColor(index: Int) {
-        attemptToColor(indices: [index])
+    // MARK: - GAMEPLAY
+    func handleTap(atIndex index: Int) {
+        let currentLvl = levelSubject.value
+        guard index >= 0 && index < currentLvl.pixels.count else { return }
+        let pixel = currentLvl.pixels[index]
+        
+        if !pixel.isColored && pixel.number == currentNumber {
+            attemptToColor(indices: [index])
+        } else if !pixel.isColored && pixel.number > 0 {
+            UINotificationFeedbackGenerator().notificationOccurred(.error)
+        }
     }
     
     func attemptToColor(indices: [Int]) {
@@ -54,11 +81,8 @@ class GameViewModel {
         var didColor = false
         
         for index in indices {
-            // Kiểm tra hợp lệ cho từng ô
-            if index >= 0 && index < lvl.pixels.count {
+            if index < lvl.pixels.count {
                 let pixel = lvl.pixels[index]
-                
-                // Logic: Chưa tô + Đúng màu
                 if !pixel.isColored && pixel.number == currentNumber {
                     lvl.pixels[index].isColored = true
                     changedIndices.append(index)
@@ -67,74 +91,32 @@ class GameViewModel {
             }
         }
         
-        // Chỉ cập nhật nếu có ít nhất 1 ô thay đổi
         if didColor {
-            // 1. Cập nhật Data
-            levelSubject.send(lvl)
-            
-            // 2. Báo View vẽ lại (Gửi cả danh sách để View vẽ 1 thể)
-            changesSubject.send(changedIndices)
-            
-            // 3. Rung nhẹ (Chỉ rung 1 lần cho cả cụm để đỡ lag máy)
+            // [TỐI ƯU] Chỉ gọi hàm cập nhật giao diện, KHÔNG lưu file ngay tại đây
+            applyChanges(lvl: lvl, indices: changedIndices)
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
-            
-            // 4. Kiểm tra thắng
-            checkWin(lvl: lvl)
         }
     }
     
-    // MARK: - Nhạc nền
-    
-    func toggleMusic() {
-        SoundManager.shared.toggleMute()
-        isMusicOn.send(!SoundManager.shared.isMuted)
-    }
-    
-    // MARK: - Kiểm tra pan là tô hay di chuyển
-    func canStartPainting(at index: Int) -> Bool {
-            let lvl = levelSubject.value
-            
-            // 1. Kiểm tra index hợp lệ
-            if index < 0 || index >= lvl.pixels.count { return false }
-            
-            let pixel = lvl.pixels[index]
-            
-            // 2. Chỉ cho phép tô nếu:
-            // - Ô đó chưa được tô màu
-            // - VÀ Số của ô đó trùng với số màu đang chọn
-            if !pixel.isColored && pixel.number == currentNumber {
-                return true
-            }
-            
-            return false
-        }
-    
-    // MARK: - Tô tất cả ô
     func triggerSmartMagic() {
         var currentLvl = levelSubject.value
         var changedIndices: [Int] = []
         let currentNum = currentNumber
-        
-        // Logic tìm số cần tô
-        let hasUncoloredCurrent = currentLvl.pixels.contains { $0.number == currentNum && !$0.isColored }
         var targetNumber = currentNum
         
+        // Logic chọn màu để dùng gậy thần
+        let hasUncoloredCurrent = currentLvl.pixels.contains { $0.number == currentNum && !$0.isColored }
         if !hasUncoloredCurrent {
-            let allNumbers = 1...currentLvl.palette.count
-            let incompleteNumbers = allNumbers.filter { num in
+            let incompleteNumbers = (1...currentLvl.paletteModels.count).filter { num in
                 currentLvl.pixels.contains(where: { $0.number == num && !$0.isColored })
             }
-            
             if let randomNum = incompleteNumbers.randomElement() {
                 targetNumber = randomNum
                 selectedColorIndex.send(targetNumber - 1)
-            } else {
-                UINotificationFeedbackGenerator().notificationOccurred(.warning)
-                return
-            }
+            } else { return }
         }
         
-        // Tô tất cả ô của số đó
+        // Tô màu
         for i in 0..<currentLvl.pixels.count {
             if currentLvl.pixels[i].number == targetNumber && !currentLvl.pixels[i].isColored {
                 currentLvl.pixels[i].isColored = true
@@ -143,40 +125,80 @@ class GameViewModel {
         }
         
         if !changedIndices.isEmpty {
-            levelSubject.send(currentLvl)
-            changesSubject.send(changedIndices)
+            applyChanges(lvl: currentLvl, indices: changedIndices)
             UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
-            checkWin(lvl: currentLvl)
         }
     }
     
-    // MARK: - Xử lý nút Fit
-        func triggerFitToScreen() {
-            resetZoomRequest.send()
-        }
+    // MARK: - Logic Cập nhật (RAM + Hẹn giờ lưu)
+    private func applyChanges(lvl: LevelData, indices: [Int]) {
+        // 1. Cập nhật dữ liệu trên RAM để vẽ lại màn hình ngay lập tức
+        levelSubject.send(lvl)
+        changesSubject.send(indices)
         
-    // MARK: -  Xử lý nút Check
-        func triggerCheckButton() {
-            isComplete.send()
-        }
+        // 2. Kiểm tra thắng
+        checkWin(lvl: lvl)
+        
+        // 3. [TỐI ƯU] Gọi hàm hẹn giờ lưu. Nó sẽ không lưu ngay mà đợi bạn dừng tay.
+        scheduleAutoSave()
+    }
     
-    // MARK: - Kiểm tra hoàn thành
+    // MARK: - Helpers
+    func toggleMusic() {
+        SoundManager.shared.toggleMute()
+        isMusicOn.send(!SoundManager.shared.isMuted)
+    }
+    
+    func triggerFitToScreen() { resetZoomRequest.send() }
+    
+    func triggerCheckButton() { isComplete.send() }
+    
     private func checkWin(lvl: LevelData) {
         let required = lvl.pixels.filter { $0.number > 0 }
         if required.allSatisfy({ $0.isColored }) {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                self.isComplete.send()
-            }
+            // [QUAN TRỌNG] Khi thắng thì phải lưu NGAY LẬP TỨC để tránh mất dữ liệu khi hiện popup
+            saveProgress()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { self.isComplete.send() }
         }
     }
     
-    // MARK: - Tìm kiếm
     func findUncoloredPixelIndex() -> Int? {
         let currentLvl = levelSubject.value
         let currentNum = currentNumber
-        if let index = currentLvl.pixels.firstIndex(where: { $0.number == currentNum && !$0.isColored }) {
-            return index
+        return currentLvl.pixels.firstIndex(where: { $0.number == currentNum && !$0.isColored })
+    }
+    
+    func canStartPainting(at index: Int) -> Bool {
+        let lvl = levelSubject.value
+        if index < 0 || index >= lvl.pixels.count { return false }
+        let pixel = lvl.pixels[index]
+        return !pixel.isColored && pixel.number == currentNumber
+    }
+    
+    // MARK: - Logic Lưu Trữ Chống Lag
+    private func scheduleAutoSave() {
+        // Nếu timer cũ đang chạy (nghĩa là bạn vừa thao tác chưa đầy 3s), hủy nó đi
+        saveTimer?.invalidate()
+        
+        // Đặt timer mới: "Sau 3 giây nữa, nếu không ai làm gì thì tôi sẽ lưu"
+        saveTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: false) { [weak self] _ in
+            self?.saveProgress()
         }
-        return nil
+    }
+    
+    // Hàm này mới thực sự ghi dữ liệu xuống ổ cứng
+    func saveProgress() {
+        print("💾 Đang lưu dữ liệu xuống máy...")
+        // 1. Lấy dữ liệu hiện tại
+        var currentData = levelSubject.value
+        
+        // 2. [MỚI] Cập nhật thời gian để đánh dấu là vừa mới chơi
+        currentData.createdAt = Date()
+        
+        // 3. Lưu xuống ổ cứng
+        GameStorageManager.shared.saveLevelProgress(currentData)
+        
+        // 4. [MỚI] Bắn thông báo để các màn hình bên ngoài (Home/Gallery) biết mà reload
+        NotificationCenter.default.post(name: NSNotification.Name("DidUpdateLevelProgress"), object: nil)
     }
 }
