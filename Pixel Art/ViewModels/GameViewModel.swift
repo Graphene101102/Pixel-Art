@@ -158,7 +158,7 @@ class GameViewModel {
         if required.allSatisfy({ $0.isColored }) {
             // [QUAN TRỌNG] Khi thắng thì phải lưu NGAY LẬP TỨC để tránh mất dữ liệu khi hiện popup
             saveProgress()
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { self.isComplete.send() }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) { self.isComplete.send() }
         }
     }
     

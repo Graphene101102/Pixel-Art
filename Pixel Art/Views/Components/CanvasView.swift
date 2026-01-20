@@ -6,18 +6,21 @@ class CanvasView: UIView, UIScrollViewDelegate {
     // 1. SCROLL VIEW
     private let scrollView: UIScrollView = {
         let sv = UIScrollView()
-        sv.minimumZoomScale = 0.5
-        sv.maximumZoomScale = 10.0
+        // Cấu hình Zoom cơ bản
+        sv.minimumZoomScale = 1.0
+        sv.maximumZoomScale = 5.0
         sv.bouncesZoom = true
+        
+        // Ẩn thanh cuộn để nhìn cho đẹp
         sv.showsHorizontalScrollIndicator = false
         sv.showsVerticalScrollIndicator = false
         sv.backgroundColor = .clear
         
-        // [QUAN TRỌNG] Cho phép nảy (bounce) để cảm giác vuốt mượt mà hơn
+        // Cho phép nảy (rubber banding)
         sv.alwaysBounceHorizontal = true
         sv.alwaysBounceVertical = true
         
-        // Tắt tự động chỉnh inset của iOS để ta tự quản lý
+        // Tắt tự động chỉnh inset (quan trọng để tự căn giữa)
         sv.contentInsetAdjustmentBehavior = .never
         return sv
     }()
@@ -31,9 +34,12 @@ class CanvasView: UIView, UIScrollViewDelegate {
     
     private let drawingLayer = NumberOverlayView()
     private var level: LevelData?
-    
     private var lastZoomStep: Int = 0
     
+    // Biến cờ: True = Chế độ kết quả (Xem ảnh), False = Chế độ chơi (Vẽ)
+    private var isResultMode: Bool = false
+    
+    // Expose Gesture cho GameViewController xử lý xung đột
     var scrollViewPanGesture: UIPanGestureRecognizer {
         return scrollView.panGestureRecognizer
     }
@@ -53,7 +59,6 @@ class CanvasView: UIView, UIScrollViewDelegate {
         addSubview(scrollView)
         
         scrollView.addSubview(containerView)
-        
         drawingLayer.translatesAutoresizingMaskIntoConstraints = false
         containerView.addSubview(drawingLayer)
         
@@ -70,20 +75,39 @@ class CanvasView: UIView, UIScrollViewDelegate {
         ])
     }
     
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        // Khi view thay đổi kích thước (lần đầu hiện lên), nếu chưa zoom thì fit ảnh vào giữa
+        if isResultMode && scrollView.zoomScale == 1.0 {
+            if let lvl = level {
+                setupForResultMode(level: lvl)
+            }
+        }
+        // Luôn gọi căn giữa để đảm bảo vị trí đúng
+        centerContent()
+    }
+    
     // MARK: - RENDER
     func render(level: LevelData, currentNumber: Int, redraw: Bool = true) {
         let levelChanged = self.level?.id != level.id
         self.level = level
         
-        if levelChanged {
-            // Reset layout khi đổi màn chơi mới
-            updateContainerSize(gridW: level.gridWidth, gridH: level.gridHeight)
-            // Zoom vừa khít màn hình lúc đầu
-            resetView()
-            lastZoomStep = 0
+        // Nếu currentNumber == -2 -> Chế độ Kết quả (Preview)
+        if currentNumber == -2 {
+            isResultMode = true
+            setupForResultMode(level: level)
+        } else {
+            isResultMode = false
+            // Chế độ chơi game: Chỉ reset layout khi đổi level
+            if levelChanged {
+                updateContainerSizeForGame(gridW: level.gridWidth, gridH: level.gridHeight)
+                resetView()
+                lastZoomStep = 0
+            }
         }
         
-        drawingLayer.contentScaleFactor = 7.0
+        // Giảm scale vẽ ở mode kết quả để mượt hơn, mode game cần nét hơn
+        drawingLayer.contentScaleFactor = isResultMode ? 4.0 : 7.0
         drawingLayer.update(level: level, currentNumber: currentNumber, currentZoom: scrollView.zoomScale)
         
         if redraw {
@@ -92,91 +116,148 @@ class CanvasView: UIView, UIScrollViewDelegate {
     }
     
     func resetView() {
-        // Zoom về 1.0 (hoặc mức fit màn hình tùy logic)
         scrollView.setZoomScale(1.0, animated: true)
     }
     
-    // Thêm khoảng đệm (Padding) để di chuyển thoải mái
-    private func updateContainerSize(gridW: Int, gridH: Int) {
-        guard gridW > 0, gridH > 0 else { return }
+    // --- [LOGIC 1] SETUP CHO MÀN KẾT QUẢ (-2) ---
+    // Mục tiêu: Pan/Zoom mượt mà nhưng giới hạn trong khung ảnh (Photo Viewer Style)
+    private func setupForResultMode(level: LevelData) {
+        let gridW = CGFloat(level.gridWidth)
+        let gridH = CGFloat(level.gridHeight)
+        if gridW == 0 || gridH == 0 { return }
         
-        // Lấy kích thước màn hình hiện tại
-        let canvasW = self.bounds.width > 0 ? self.bounds.width : 300
-        let canvasH = self.bounds.height > 0 ? self.bounds.height : 300
+        // Lấy kích thước khung nhìn hiện tại
+        let viewW = self.bounds.width > 0 ? self.bounds.width : 300
+        let viewH = self.bounds.height > 0 ? self.bounds.height : 300
         
-        let gridRatio = CGFloat(gridW) / CGFloat(gridH)
-        let canvasRatio = canvasW / canvasH
+        let gridRatio = gridW / gridH
+        let viewRatio = viewW / viewH
         
         var finalW: CGFloat
         var finalH: CGFloat
         
-        // Tính toán kích thước hình vẽ sao cho Fit vào màn hình lúc đầu
-        if gridRatio > canvasRatio {
-            finalW = canvasW
-            finalH = canvasW / gridRatio
+        // Tính toán kích thước ảnh sao cho vừa khít (Aspect Fit)
+        if gridRatio > viewRatio {
+            finalW = viewW
+            finalH = viewW / gridRatio
         } else {
-            finalH = canvasH
-            finalW = canvasH * gridRatio
+            finalH = viewH
+            finalW = viewH * gridRatio
         }
+        
+        // 1. Đặt kích thước nội dung bằng đúng kích thước ảnh hiển thị
+        containerView.frame = CGRect(x: 0, y: 0, width: finalW, height: finalH)
+        scrollView.contentSize = containerView.frame.size
+        
+        // 2. Xóa Padding ảo (để giới hạn vùng kéo)
+        scrollView.contentInset = .zero
+        
+        // 3. Cấu hình Zoom
+        scrollView.minimumZoomScale = 1.0
+        scrollView.maximumZoomScale = 5.0
+        scrollView.zoomScale = 1.0
+        
+        // 4. Bật Scroll
+        scrollView.isScrollEnabled = true
+        
+        // 5. Căn giữa
+        centerContent()
+    }
+    
+    // --- [LOGIC 2] SETUP CHO GAME MODE ---
+    // Mục tiêu: Padding cực lớn để kéo hình đi khắp nơi (Game Style)
+    private func updateContainerSizeForGame(gridW: Int, gridH: Int) {
+        guard gridW > 0, gridH > 0 else { return }
+        let canvasW = self.bounds.width > 0 ? self.bounds.width : 300
+        let canvasH = self.bounds.height > 0 ? self.bounds.height : 300
+        let gridRatio = CGFloat(gridW) / CGFloat(gridH)
+        let canvasRatio = canvasW / canvasH
+        var finalW: CGFloat; var finalH: CGFloat
+        if gridRatio > canvasRatio { finalW = canvasW; finalH = canvasW / gridRatio }
+        else { finalH = canvasH; finalW = canvasH * gridRatio }
         
         containerView.frame = CGRect(x: 0, y: 0, width: finalW, height: finalH)
         scrollView.contentSize = containerView.frame.size
         
-        // [PADDING] Thêm khoảng trống lớn xung quanh (bằng 50% màn hình)
         let paddingX = canvasW * 0.5
         let paddingY = canvasH * 0.5
         scrollView.contentInset = UIEdgeInsets(top: paddingY, left: paddingX, bottom: paddingY, right: paddingX)
         
-        // Căn giữa lúc mới vào
-        centerContent()
+        // Tự động đưa về giữa màn hình bằng offset (Logic câu trước)
+        let targetOffsetX = (finalW - canvasW) / 2.0
+        let targetOffsetY = (finalH - canvasH) / 2.0
+        scrollView.contentOffset = CGPoint(x: targetOffsetX, y: targetOffsetY)
     }
     
-    // Hàm căn giữa nội dung (Đã điều chỉnh để tôn trọng Inset)
+    // MARK: - CENTER CONTENT (Logic Căn Giữa)
     private func centerContent() {
-        let boundsSize = scrollView.bounds.size
-        var contentsFrame = containerView.frame
-        
-        // Chỉ căn giữa nếu hình NHỎ HƠN màn hình (lúc zoom out hết cỡ)
-        // Nếu hình to hơn màn hình, để ScrollView tự lo việc cuộn
-        if contentsFrame.size.width < boundsSize.width {
-            contentsFrame.origin.x = (boundsSize.width - contentsFrame.size.width) / 2.0
+        if isResultMode {
+            // [RESULT MODE]
+            // Dùng kỹ thuật thay đổi 'center' của containerView
+            // Đây là cách chuẩn để zoom ảnh mà vẫn giữ ảnh ở giữa khi zoom out
+            let boundsSize = scrollView.bounds.size
+            var frameToCenter = containerView.frame
+            
+            var offsetX: CGFloat = 0
+            var offsetY: CGFloat = 0
+            
+            // Nếu ảnh nhỏ hơn màn hình -> Tính offset để đẩy vào giữa
+            if frameToCenter.size.width < boundsSize.width {
+                offsetX = (boundsSize.width - frameToCenter.size.width) / 2.0
+            }
+            if frameToCenter.size.height < boundsSize.height {
+                offsetY = (boundsSize.height - frameToCenter.size.height) / 2.0
+            }
+            
+            // Set tâm mới
+            containerView.center = CGPoint(
+                x: scrollView.contentSize.width / 2.0 + offsetX,
+                y: scrollView.contentSize.height / 2.0 + offsetY
+            )
+            
         } else {
-            contentsFrame.origin.x = 0.0
-        }
-        
-        if contentsFrame.size.height < boundsSize.height {
-            contentsFrame.origin.y = (boundsSize.height - contentsFrame.size.height) / 2.0
-        } else {
-            contentsFrame.origin.y = 0.0
-        }
-        
-        // Lưu ý: Không set lại frame liên tục khi đang zoom để tránh giật
-        // containerView.frame = contentsFrame // (Dòng này iOS tự quản lý trong viewForZooming tốt hơn)
-        
-        // Logic căn giữa thủ công tốt nhất cho Inset lớn:
-        let offsetX = max(0, (boundsSize.width - scrollView.contentSize.width) * 0.5)
-        let offsetY = max(0, (boundsSize.height - scrollView.contentSize.height) * 0.5)
-        
-        // Đặt lại contentInset tạm thời để căn giữa hình nhỏ
-        // (Đây là kỹ thuật nâng cao để hình luôn ở giữa khi zoom out, nhưng tự do khi zoom in)
-        scrollView.contentInset.top = max((boundsSize.height - scrollView.contentSize.height) * 0.5, 0)
-        if scrollView.contentInset.top < boundsSize.height * 0.5 {
-             // Nếu hình to, trả lại padding lớn để di chuyển thoải mái
-             let defaultPadding = boundsSize.height * 0.5
-             scrollView.contentInset.top = defaultPadding
-             scrollView.contentInset.bottom = defaultPadding
-        }
-        
-        scrollView.contentInset.left = max((boundsSize.width - scrollView.contentSize.width) * 0.5, 0)
-        if scrollView.contentInset.left < boundsSize.width * 0.5 {
-             let defaultPadding = boundsSize.width * 0.5
-             scrollView.contentInset.left = defaultPadding
-             scrollView.contentInset.right = defaultPadding
+            // [GAME MODE] Giữ nguyên logic cũ dùng Inset
+            let boundsSize = scrollView.bounds.size
+            scrollView.contentInset.top = max((boundsSize.height - scrollView.contentSize.height) * 0.5, 0)
+            if scrollView.contentInset.top < boundsSize.height * 0.5 {
+                let defaultPadding = boundsSize.height * 0.5
+                scrollView.contentInset.top = defaultPadding
+                scrollView.contentInset.bottom = defaultPadding
+            }
+            scrollView.contentInset.left = max((boundsSize.width - scrollView.contentSize.width) * 0.5, 0)
+            if scrollView.contentInset.left < boundsSize.width * 0.5 {
+                let defaultPadding = boundsSize.width * 0.5
+                scrollView.contentInset.left = defaultPadding
+                scrollView.contentInset.right = defaultPadding
+            }
         }
     }
     
-    // ... (Giữ nguyên các hàm updatePixels, getPixelIndex, getGridPosition, getIndex, zoomToPixel) ...
+    // MARK: - SCROLL VIEW DELEGATE
+    func viewForZooming(in scrollView: UIScrollView) -> UIView? {
+        return containerView
+    }
     
+    func scrollViewDidZoom(_ scrollView: UIScrollView) {
+        centerContent() // Căn giữa liên tục khi đang zoom
+        
+        // Tối ưu việc vẽ lại khi zoom (chỉ vẽ lại ở các mốc zoom nhất định)
+        let currentZoom = scrollView.zoomScale
+        var newStep = 0
+        if currentZoom >= 8.5 { newStep = 3 }
+        else if currentZoom >= 4.0 { newStep = 2 }
+        else if currentZoom >= 1.2 { newStep = 1 }
+        else { newStep = 0 }
+        
+        if newStep != lastZoomStep {
+            lastZoomStep = newStep
+            drawingLayer.updateZoom(currentZoom)
+            drawingLayer.setNeedsDisplay()
+        }
+    }
+    
+    // ... (Giữ nguyên các hàm Helper: updatePixels, getPixelIndex, zoomToPixel...) ...
+    // Bạn copy lại các hàm helper này từ code cũ nhé
     func updatePixels(at indices: [Int]) {
         guard let level = level else { return }
         let gridW = CGFloat(level.gridWidth)
@@ -238,27 +319,7 @@ class CanvasView: UIView, UIScrollViewDelegate {
         scrollView.zoom(to: zoomRect, animated: true)
     }
     
-    // ScrollView Delegate (Cập nhật logic căn giữa khi zoom)
-    func viewForZooming(in scrollView: UIScrollView) -> UIView? { return containerView }
-    
-    func scrollViewDidZoom(_ scrollView: UIScrollView) {
-        centerContent() // Gọi hàm căn giữa thông minh mới
-        
-        let currentZoom = scrollView.zoomScale
-        var newStep = 0
-        if currentZoom >= 8.5 { newStep = 3 }
-        else if currentZoom >= 4.0 { newStep = 2 }
-        else if currentZoom >= 1.2 { newStep = 1 }
-        else { newStep = 0 }
-        
-        if newStep != lastZoomStep {
-            lastZoomStep = newStep
-            drawingLayer.updateZoom(currentZoom)
-            drawingLayer.setNeedsDisplay()
-        }
-    }
-    
-    // MARK: - LỚP VẼ (Giữ nguyên logic vẽ mới nhất của bạn: Có lót trắng cho ô chưa tô)
+    // Class NumberOverlayView
     class NumberOverlayView: UIView {
         var level: LevelData?
         var currentNumber: Int = 0
@@ -312,11 +373,11 @@ class CanvasView: UIView, UIScrollViewDelegate {
             let paragraphStyle = NSMutableParagraphStyle()
             paragraphStyle.alignment = .center
             
-            let textAttributes: [NSAttributedString.Key: Any] = [
-                .font: font, .paragraphStyle: paragraphStyle, .foregroundColor: UIColor.black.withAlphaComponent(0.6)
-            ]
             let activeAttributes: [NSAttributedString.Key: Any] = [
                 .font: UIFont.boldSystemFont(ofSize: fontSize), .paragraphStyle: paragraphStyle, .foregroundColor: UIColor.black
+            ]
+            let textAttributes: [NSAttributedString.Key: Any] = [
+                .font: font, .paragraphStyle: paragraphStyle, .foregroundColor: UIColor.black.withAlphaComponent(0.6)
             ]
             
             let gridColor = UIColor.systemGray.cgColor
@@ -324,12 +385,10 @@ class CanvasView: UIView, UIScrollViewDelegate {
             
             for r in minRow..<maxRow {
                 for c in minCol..<maxCol {
-                    
                     let index = r * level.gridWidth + c
                     if index >= level.pixels.count { continue }
                     let pixel = level.pixels[index]
-                    
-                    if pixel.number == 0 { continue } // Trong suốt -> Bỏ qua
+                    if pixel.number == 0 { continue }
                     
                     let x = CGFloat(c) * pixelW
                     let y = CGFloat(r) * pixelH
@@ -346,15 +405,16 @@ class CanvasView: UIView, UIScrollViewDelegate {
                         if pixel.isColored {
                             uiColor.setFill()
                             context.fill(pixelRect)
-                            
-                            context.setStrokeColor(uiColor.cgColor)
-                            context.setLineWidth(lineWidth * 1.5)
-                            context.stroke(pixelRect)
+                            if currentNumber != -2 {
+                                context.setStrokeColor(uiColor.cgColor)
+                                context.setLineWidth(lineWidth * 1.5)
+                                context.stroke(pixelRect)
+                            }
                         } else {
-                            // Chưa tô -> Lót trắng trước
+                            if currentNumber == -2 { continue }
+                            
                             UIColor.white.setFill()
                             context.fill(pixelRect)
-                            
                             context.setStrokeColor(gridColor)
                             context.setLineWidth(lineWidth)
                             context.stroke(pixelRect)
@@ -368,7 +428,7 @@ class CanvasView: UIView, UIScrollViewDelegate {
                                     drawNumber(pixel.number, at: pixelRect, fontHeight: font.lineHeight, attrs: activeAttributes)
                                 }
                             } else {
-                                uiColor.withAlphaComponent(0.2).setFill()
+                                uiColor.withAlphaComponent(0.15).setFill()
                                 context.fill(pixelRect)
                                 if shouldDrawNumber {
                                     drawNumber(pixel.number, at: pixelRect, fontHeight: font.lineHeight, attrs: textAttributes)

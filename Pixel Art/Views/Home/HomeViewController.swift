@@ -26,30 +26,6 @@ class HomeViewController: UIViewController, UnlockLevelDelegate, ImportPhotoPopu
         return lbl
     }()
     
-    // [GIAO DIỆN CŨ] Label Topic có Icon
-    private let topicLabel: UILabel = {
-        let lbl = UILabel()
-        // Tạo icon
-        let attachment = NSTextAttachment()
-        if let icon = UIImage(named: "Vector") { // Đảm bảo bạn có ảnh tên "Vector" trong Assets
-            attachment.image = icon
-            attachment.bounds = CGRect(x: 0, y: -4, width: 20, height: 20)
-        } else {
-            // Icon dự phòng nếu không tìm thấy ảnh
-            attachment.image = UIImage(systemName: "square.grid.2x2.fill")
-            attachment.bounds = CGRect(x: 0, y: -2, width: 20, height: 20)
-        }
-        
-        let attrString = NSMutableAttributedString(string: "")
-        attrString.append(NSAttributedString(attachment: attachment))
-        attrString.append(NSAttributedString(string: "  Topic"))
-        
-        lbl.attributedText = attrString
-        lbl.font = .systemFont(ofSize: 20, weight: .bold)
-        lbl.textColor = .black
-        return lbl
-    }()
-    
     private let plusButton: UIButton = {
         let btn = UIButton(type: .system)
         let config = UIImage.SymbolConfiguration(pointSize: 20, weight: .bold)
@@ -110,12 +86,10 @@ class HomeViewController: UIViewController, UnlockLevelDelegate, ImportPhotoPopu
         // Add Subviews
         view.addSubview(libraryLabel)
         view.addSubview(plusButton)
-        view.addSubview(topicLabel) // [GIAO DIỆN CŨ]
         view.addSubview(loadingIndicator)
         
         libraryLabel.translatesAutoresizingMaskIntoConstraints = false
         plusButton.translatesAutoresizingMaskIntoConstraints = false
-        topicLabel.translatesAutoresizingMaskIntoConstraints = false
         loadingIndicator.translatesAutoresizingMaskIntoConstraints = false
         
         plusButton.addTarget(self, action: #selector(didTapAdd), for: .touchUpInside)
@@ -165,12 +139,8 @@ class HomeViewController: UIViewController, UnlockLevelDelegate, ImportPhotoPopu
             plusButton.widthAnchor.constraint(equalToConstant: 40),
             plusButton.heightAnchor.constraint(equalToConstant: 40),
             
-            // Topic Label (Dưới Library)
-            topicLabel.topAnchor.constraint(equalTo: libraryLabel.bottomAnchor, constant: 20),
-            topicLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20),
-            
             // Category CollectionView (Dưới Topic - Thu gọn chiều cao 45)
-            categoryCollectionView.topAnchor.constraint(equalTo: topicLabel.bottomAnchor, constant: 15),
+            categoryCollectionView.topAnchor.constraint(equalTo: libraryLabel.bottomAnchor, constant: 15),
             categoryCollectionView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             categoryCollectionView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             categoryCollectionView.heightAnchor.constraint(equalToConstant: 45),
