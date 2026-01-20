@@ -104,13 +104,20 @@ class GameViewController: UIViewController, UIGestureRecognizerDelegate, Backgro
         // Cập nhật số lượng item lần đầu
         updateBadges()
         
-        // [QUAN TRỌNG] Lắng nghe khi app bị ẩn xuống (Về Home/Cuộc gọi tới)
+        // Lắng nghe khi app bị ẩn xuống (Về Home/Cuộc gọi tới)
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(appDidEnterBackground),
             name: UIApplication.didEnterBackgroundNotification,
             object: nil
         )
+        
+        // Lắng nghe app mở lại
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(appWillEnterForeground),
+            name: UIApplication.willEnterForegroundNotification,
+            object: nil)
     }
     
     override func viewWillAppear(_ animated: Bool) {
@@ -128,11 +135,15 @@ class GameViewController: UIViewController, UIGestureRecognizerDelegate, Backgro
         
         // Tắt tính năng vuốt cạnh để back (tránh vuốt nhầm khi tô màu)
         navigationController?.interactivePopGestureRecognizer?.isEnabled = false
+        
+        viewModel.startGameplayTimer()
     }
     
     // [CỰC KỲ QUAN TRỌNG] Lưu dữ liệu khi thoát màn hình
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
+        
+        viewModel.stopGameplayTimer()
         
         // Lưu ngay lập tức
         viewModel.saveProgress()
@@ -147,11 +158,17 @@ class GameViewController: UIViewController, UIGestureRecognizerDelegate, Backgro
     
     // [CỰC KỲ QUAN TRỌNG] Lưu dữ liệu khi app ẩn
     @objc private func appDidEnterBackground() {
+        viewModel.stopGameplayTimer()
         viewModel.saveProgress()
     }
     
     deinit {
         NotificationCenter.default.removeObserver(self)
+    }
+    
+    // Khi App quay lại (Foreground)
+    @objc private func appWillEnterForeground() {
+        viewModel.startGameplayTimer()
     }
     
     // MARK: - Setup UI Constraints
@@ -363,31 +380,44 @@ class GameViewController: UIViewController, UIGestureRecognizerDelegate, Backgro
     
     // MARK: - Binding & Update Logic
     private func bindViewModel() {
-        // 1. Cập nhật Canvas khi LevelData thay đổi
-        viewModel.levelSubject.receive(on: DispatchQueue.main).sink { [weak self] level in
-            guard let self = self else { return }
-            self.canvasView.render(level: level, currentNumber: self.viewModel.currentNumber)
-            self.paletteCollectionView.reloadData()
-        }.store(in: &cancellables)
         
-        // 2. Cập nhật tối ưu (chỉ vẽ lại các pixel thay đổi)
-        viewModel.changesSubject.receive(on: DispatchQueue.main).sink { [weak self] indices in
-            self?.canvasView.updatePixels(at: indices)
-            self?.paletteCollectionView.reloadData()
-        }.store(in: &cancellables)
+        // [QUAN TRỌNG] 1. Load lần đầu: Cập nhật Canvas khi có LevelData mới
+        // Dùng PassthroughSubject (levelSubject) để lắng nghe
+        viewModel.levelSubject
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] level in
+                guard let self = self else { return }
+                self.canvasView.render(level: level, currentNumber: self.viewModel.currentNumber)
+                self.paletteCollectionView.reloadData()
+            }.store(in: &cancellables)
         
-        // 3. Khi chọn màu mới
-        viewModel.selectedColorIndex.receive(on: DispatchQueue.main).sink { [weak self] _ in
-            guard let self = self else { return }
-            self.paletteCollectionView.reloadData()
-            // Vẽ lại để highlight màu mới
-            self.canvasView.render(level: self.viewModel.levelSubject.value, currentNumber: self.viewModel.currentNumber)
-        }.store(in: &cancellables)
+        // Gọi hàm load ban đầu
+        viewModel.loadInitialLevel()
+        
+        // [QUAN TRỌNG] 2. Cập nhật tối ưu: Chỉ vẽ lại các pixel thay đổi
+        // Truyền thêm with: self.viewModel.currentLevelData để fix lỗi không hiển thị màu ngay
+        viewModel.changesSubject
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] indices in
+                guard let self = self else { return }
+                self.canvasView.updatePixels(at: indices, with: self.viewModel.currentLevelData)
+                self.paletteCollectionView.reloadData()
+            }.store(in: &cancellables)
+        
+        // 3. Khi chọn màu mới -> Render lại lớp phủ (Highlight số)
+        viewModel.selectedColorIndex
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                guard let self = self else { return }
+                self.paletteCollectionView.reloadData()
+                // Render lại nhưng chỉ vẽ overlay, không tính toán nặng
+                self.canvasView.render(level: self.viewModel.currentLevelData, currentNumber: self.viewModel.currentNumber)
+            }.store(in: &cancellables)
         
         // 4. Khi hoàn thành Level
         viewModel.isComplete.receive(on: DispatchQueue.main).sink { [weak self] _ in
             guard let self = self else { return }
-            let vc = LevelCompletedViewController(level: self.viewModel.levelSubject.value)
+            let vc = LevelCompletedViewController(level: self.viewModel.currentLevelData)
             vc.modalPresentationStyle = .overFullScreen
             vc.modalTransitionStyle = .crossDissolve
             self.present(vc, animated: true)
@@ -614,12 +644,12 @@ class GameViewController: UIViewController, UIGestureRecognizerDelegate, Backgro
 // MARK: - Extensions: CollectionView Delegate
 extension GameViewController: UICollectionViewDataSource, UICollectionViewDelegate {
     func collectionView(_ collectionView: UICollectionView, numberOfItemsInSection section: Int) -> Int {
-        return viewModel.levelSubject.value.palette.count
+        return viewModel.currentLevelData.palette.count
     }
     
     func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
         let cell = collectionView.dequeueReusableCell(withReuseIdentifier: "ColorCell", for: indexPath) as! ColorCell
-        let level = viewModel.levelSubject.value
+        let level = viewModel.currentLevelData
         let number = indexPath.item + 1
         
         // Kiểm tra xem số này đã tô xong hết chưa

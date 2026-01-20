@@ -89,12 +89,12 @@ class BackgroundOptionCell: UICollectionViewCell {
         if isUploadButton {
             isBordered = true
             imageView.backgroundColor = .white
-            iconView.image = UIImage(systemName: "square.and.arrow.up")
+            iconView.image = UIImage(named: "uploadIcon")
             iconView.isHidden = false
             
         } else if isWhiteButton {
             isBordered = true
-            imageView.backgroundColor = .white // [QUAN TRỌNG] Đảm bảo nền trắng
+            imageView.backgroundColor = .white
             
         } else {
             isBordered = false
@@ -186,16 +186,31 @@ class LevelCompletedViewController: UIViewController {
     private var collectionView: UICollectionView!
     
     private let continueButton: UIButton = {
-        let btn = UIButton(type: .system)
+        let btn = UIButton(type: .custom)
         btn.setTitle("Continue", for: .normal)
-        btn.titleLabel?.font = .systemFont(ofSize: 20, weight: .bold)
-        btn.backgroundColor = UIColor(hex: "#3475CB")
-        btn.tintColor = .white
-        btn.layer.cornerRadius = 25
-        btn.layer.shadowColor = UIColor(hex: "#3475CB").cgColor
-        btn.layer.shadowOpacity = 0.4
+        
+        // 1. Font chữ đậm, to, có shadow cho chữ (như ảnh)
+        btn.titleLabel?.font = .systemFont(ofSize: 24, weight: .heavy)
+        btn.setTitleColor(.white, for: .normal)
+        btn.titleLabel?.shadowColor = UIColor(red: 0, green: 0, blue: 0, alpha: 0.2)
+        btn.titleLabel?.shadowOffset = CGSize(width: 1, height: 1)
+        
+        // 2. Màu nền :
+        btn.backgroundColor = UIColor(hex: "#4A90E2")
+        
+        // 3. Bo góc tròn
+        btn.layer.cornerRadius = 16
+        
+        // 4. Viền trắng dày
+        btn.layer.borderWidth = 1.5
+        btn.layer.borderColor = UIColor.white.cgColor
+        
+        // 5. Shadow cho nút
+        btn.layer.shadowColor = UIColor.gray.cgColor
+        btn.layer.shadowOpacity = 1.0
         btn.layer.shadowOffset = CGSize(width: 0, height: 4)
-        btn.layer.shadowRadius = 6
+        btn.layer.shadowRadius = 0
+        
         return btn
     }()
     
@@ -248,7 +263,7 @@ class LevelCompletedViewController: UIViewController {
         continueButton.translatesAutoresizingMaskIntoConstraints = false
         
         backButton.addTarget(self, action: #selector(didTapClose), for: .touchUpInside)
-        continueButton.addTarget(self, action: #selector(didTapClose), for: .touchUpInside)
+        continueButton.addTarget(self, action: #selector(didTapContinue), for: .touchUpInside)
         
         NSLayoutConstraint.activate([
             fullScreenBackgroundView.topAnchor.constraint(equalTo: view.topAnchor),
@@ -321,15 +336,30 @@ class LevelCompletedViewController: UIViewController {
     
     // MARK: - Actions
     @objc private func didTapClose() {
-        if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-           let rootNav = windowScene.windows.first?.rootViewController as? UINavigationController {
-            self.dismiss(animated: true) {
-                rootNav.popToRootViewController(animated: true)
-            }
-        } else {
-            self.dismiss(animated: true)
-        }
+        self.dismiss(animated: true, completion: nil)
     }
+
+@objc private func didTapContinue() {
+    // 1. Chụp ảnh kết quả (Bao gồm Background + Canvas)
+    let renderer = UIGraphicsImageRenderer(bounds: artworkContainer.bounds)
+    let capturedImage = renderer.image { context in
+        artworkContainer.drawHierarchy(in: artworkContainer.bounds, afterScreenUpdates: true)
+    }
+    
+    // 2. Tính toán thống kê
+    // Lấy thời gian đã lưu trong local
+    let savedLevel = GameStorageManager.shared.loadLevelProgress(originalLevel: self.level)
+    let timeSpent = savedLevel.timeSpent
+    
+    // Đếm số pixels có màu
+    let totalPixels = savedLevel.pixels.filter { $0.number > 0 }.count
+    
+    // 3. Chuyển sang màn hình Success
+    let successVC = SuccessViewController(image: capturedImage, timeSpent: timeSpent, totalPixels: totalPixels)
+    successVC.modalPresentationStyle = .fullScreen
+    successVC.modalTransitionStyle = .crossDissolve
+    present(successVC, animated: true)
+}
 }
 
 // MARK: - CollectionView Delegate & DataSource

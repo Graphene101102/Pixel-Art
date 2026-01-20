@@ -8,6 +8,13 @@ struct ColorModel: Codable, Hashable {
     var toUIColor: UIColor {
         return UIColor(red: r, green: g, blue: b, alpha: 1.0)
     }
+    
+    // Hashable protocol (để dùng làm Key trong Dictionary)
+        func hash(into hasher: inout Hasher) {
+            hasher.combine(r)
+            hasher.combine(g)
+            hasher.combine(b)
+        }
 }
 
 extension UIColor {

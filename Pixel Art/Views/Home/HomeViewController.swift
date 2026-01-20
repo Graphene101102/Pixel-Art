@@ -1,14 +1,22 @@
 import UIKit
 import PhotosUI
 
-class HomeViewController: UIViewController, UnlockLevelDelegate, ImportPhotoPopupDelegate {
+class HomeViewController: UIViewController, UnlockLevelDelegate, ImportPhotoPopupDelegate, DifficultySelectionDelegate {
     
-    // MARK: - Data
-    private var allLevels: [LevelData] = []
+    // MARK: - Data Properties
+    private var allLevels: [LevelData] = []          // Chứa tất cả level (Gốc Firebase + Merge Local)
+    
+    // Gom nhóm để hiển thị 1 hình đại diện cho 3 cấp độ
+    private var groupedLevels: [LevelData] = []
+    private var allLevelsMap: [String: [LevelData]] = [:] // Map groupId -> [Easy, Medium, Hard]
+    
     private var displayedLevels: [LevelData] = []
     private var categories: [String] = ["Tất cả"]
     private var currentCategoryIndex = 0
     var pendingUnlockLevel: LevelData?
+    
+    // Biến cờ để phân biệt nguồn (Plus vs Middle)
+    private var isCreatingFirebaseLevels: Bool = false
     
     // MARK: - UI Elements
     private let backgroundImageView: UIImageView = {
@@ -49,9 +57,9 @@ class HomeViewController: UIViewController, UnlockLevelDelegate, ImportPhotoPopu
     override func viewDidLoad() {
         super.viewDidLoad()
         setupUI()
-        loadData()
+        loadDataFromFirebase()
         
-        // Lắng nghe sự kiện lưu game từ GameViewModel để reload Home
+        // Lắng nghe khi có thay đổi tiến độ (Save game local) để reload UI
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(handleProgressUpdate),
@@ -60,30 +68,25 @@ class HomeViewController: UIViewController, UnlockLevelDelegate, ImportPhotoPopu
         )
     }
     
-    deinit {
-        NotificationCenter.default.removeObserver(self)
-    }
+    deinit { NotificationCenter.default.removeObserver(self) }
     
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         navigationController?.setNavigationBarHidden(true, animated: animated)
-        refreshLocalData()
+        refreshDataDisplay()
     }
     
     @objc private func handleProgressUpdate() {
-        DispatchQueue.main.async { [weak self] in self?.refreshLocalData() }
+        DispatchQueue.main.async { [weak self] in self?.refreshDataDisplay() }
     }
     
-    // MARK: - Setup UI (Giao diện cũ)
+    // MARK: - UI Setup
     private func setupUI() {
         view.backgroundColor = .white
-        
-        // Background
         view.addSubview(backgroundImageView)
         backgroundImageView.frame = view.bounds
         backgroundImageView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         
-        // Add Subviews
         view.addSubview(libraryLabel)
         view.addSubview(plusButton)
         view.addSubview(loadingIndicator)
@@ -94,7 +97,6 @@ class HomeViewController: UIViewController, UnlockLevelDelegate, ImportPhotoPopu
         
         plusButton.addTarget(self, action: #selector(didTapAdd), for: .touchUpInside)
         
-        // 1. Category CollectionView (Thu gọn)
         let catLayout = UICollectionViewFlowLayout()
         catLayout.scrollDirection = .horizontal
         catLayout.estimatedItemSize = CGSize(width: 80, height: 35)
@@ -110,12 +112,10 @@ class HomeViewController: UIViewController, UnlockLevelDelegate, ImportPhotoPopu
         categoryCollectionView.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(categoryCollectionView)
         
-        // 2. Main CollectionView
         let mainLayout = UICollectionViewFlowLayout()
         let padding: CGFloat = 17
         let itemWidth = (view.frame.width - (padding * 2) - 10) / 2
-        // Chiều cao cell = chiều rộng + phần text bên dưới
-        mainLayout.itemSize = CGSize(width: itemWidth, height: itemWidth + 40)
+        mainLayout.itemSize = CGSize(width: itemWidth, height: itemWidth)
         mainLayout.minimumLineSpacing = 20
         mainLayout.sectionInset = UIEdgeInsets(top: 10, left: padding, bottom: 100, right: padding)
         
@@ -127,65 +127,46 @@ class HomeViewController: UIViewController, UnlockLevelDelegate, ImportPhotoPopu
         mainCollectionView.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(mainCollectionView)
         
-        // Constraints (Căn chỉnh theo giao diện cũ)
         NSLayoutConstraint.activate([
-            // Library Label (Top Left)
             libraryLabel.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 10),
             libraryLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20),
             
-            // Plus Button (Top Right - ngang hàng Library)
             plusButton.centerYAnchor.constraint(equalTo: libraryLabel.centerYAnchor),
             plusButton.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -20),
             plusButton.widthAnchor.constraint(equalToConstant: 40),
             plusButton.heightAnchor.constraint(equalToConstant: 40),
             
-            // Category CollectionView (Dưới Topic - Thu gọn chiều cao 45)
             categoryCollectionView.topAnchor.constraint(equalTo: libraryLabel.bottomAnchor, constant: 15),
             categoryCollectionView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             categoryCollectionView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             categoryCollectionView.heightAnchor.constraint(equalToConstant: 45),
             
-            // Main CollectionView (Phần còn lại)
             mainCollectionView.topAnchor.constraint(equalTo: categoryCollectionView.bottomAnchor, constant: 10),
             mainCollectionView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             mainCollectionView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             mainCollectionView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
             
-            // Loading Indicator
             loadingIndicator.centerXAnchor.constraint(equalTo: view.centerXAnchor),
             loadingIndicator.centerYAnchor.constraint(equalTo: view.centerYAnchor)
         ])
     }
     
-    // MARK: - Logic Data
-    private func loadData() {
-        if AppData.shared.hasDataLoaded {
-            // 1. Lấy Categories
-            self.categories = AppData.shared.preloadedCategories
-            self.categoryCollectionView.reloadData()
-            
-            // 2. Lấy Levels và Merge với Local Save
-            let rawLevels = AppData.shared.preloadedLevels
-            self.allLevels = rawLevels.map { GameStorageManager.shared.loadLevelProgress(originalLevel: $0) }
-            
-            // 3. Hiển thị
-            self.filterLevels()
-            
-            return
-        }
-        
-        // --- Nếu vào thẳng Home mà không qua Splash thì load từ firebase ---
-        print("⚠️ Fetching data directly in Home")
+    // MARK: - Logic Data (SỬA ĐỔI QUAN TRỌNG)
+    
+    private func loadDataFromFirebase() {
         loadingIndicator.startAnimating()
         let group = DispatchGroup()
         
+        var fetchedLevels: [LevelData] = []
+        
+        // 1. Chỉ lấy level từ Firebase
         group.enter()
-        FirebaseManager.shared.fetchLevels { [weak self] firebaseLevels in
-            guard let self = self else { return }
-            self.allLevels = firebaseLevels.map { GameStorageManager.shared.loadLevelProgress(originalLevel: $0) }
+        FirebaseManager.shared.fetchLevels { levels in
+            fetchedLevels = levels
             group.leave()
         }
         
+        // 2. Lấy Categories
         group.enter()
         FirebaseManager.shared.fetchCategories { [weak self] fetchedCats in
             if !fetchedCats.isEmpty {
@@ -198,93 +179,250 @@ class HomeViewController: UIViewController, UnlockLevelDelegate, ImportPhotoPopu
         }
         
         group.notify(queue: .main) { [weak self] in
-            self?.loadingIndicator.stopAnimating()
-            self?.categoryCollectionView.reloadData()
-            self?.filterLevels()
+            guard let self = self else { return }
+            self.loadingIndicator.stopAnimating()
+            self.categoryCollectionView.reloadData()
+            
+            self.allLevels = fetchedLevels
+            self.refreshDataDisplay()
         }
     }
     
-    private func refreshLocalData() {
+    private func refreshDataDisplay() {
         if allLevels.isEmpty { return }
-        // Reload lại tiến độ từ file local
-        self.allLevels = self.allLevels.map { GameStorageManager.shared.loadLevelProgress(originalLevel: $0) }
+        
+        // [QUAN TRỌNG] Merge với Local Data
+        // Duyệt qua từng level lấy từ Firebase
+        // Kiểm tra xem trong Local (GameStorageManager) có file save của level này không
+        // Nếu có -> Thay thế bằng bản local (để có progress, màu đã tô)
+        
+        var mergedLevels: [LevelData] = []
+        for level in allLevels {
+            // Hàm loadLevelProgress sẽ ưu tiên lấy từ file local nếu tồn tại
+            // Nếu không có file local, nó trả về chính level gốc (Firebase)
+            let localVer = GameStorageManager.shared.loadLevelProgress(originalLevel: level)
+            
+            // Tuy nhiên, ta CẦN GIỮ LẠI `createdAt` của Firebase để sắp xếp
+            // Vì yêu cầu của bạn là "Hiển thị theo createdAt của Firebase"
+            var finalVer = localVer
+            finalVer.createdAt = level.createdAt // Reset về thời gian gốc trên server
+            
+            mergedLevels.append(finalVer)
+        }
+        
+        self.allLevels = mergedLevels
+        
+        // 1. Gom nhóm theo groupId
+        self.allLevelsMap = Dictionary(grouping: allLevels, by: { $0.groupId })
+        
+        // 2. Tạo danh sách hiển thị
+        // Lấy đại diện (Easy) và sắp xếp theo createdAt (của Firebase)
+        self.groupedLevels = allLevelsMap.values.compactMap { levels in
+            return levels.first(where: { $0.difficulty == 3 }) ?? levels.first
+        }.sorted(by: { $0.createdAt > $1.createdAt }) // Mới nhất lên đầu
+        
         filterLevels()
     }
     
     private func filterLevels() {
         let cat = categories[currentCategoryIndex]
-        if cat == "Tất cả" { displayedLevels = allLevels }
-        else { displayedLevels = allLevels.filter { $0.category == cat } }
+        if cat == "Tất cả" {
+            displayedLevels = groupedLevels
+        } else {
+            displayedLevels = groupedLevels.filter { $0.category == cat }
+        }
         mainCollectionView.reloadData()
     }
     
-    // MARK: - ACTION: Add (Upload Firebase)
+    // MARK: - Actions: Add Image
+    
+    // [PLUS BUTTON] -> Firebase (3 cấp độ)
     @objc func didTapAdd() {
-        // Sử dụng Popup mới
+        isCreatingFirebaseLevels = true
         let popup = ImportPhotoPopupViewController()
         popup.modalPresentationStyle = .overFullScreen
         popup.delegate = self
         present(popup, animated: false)
     }
     
-    // Delegate ImportPhotoPopupDelegate
+    // [MIDDLE BUTTON] -> Local (1 cấp độ)
+    func handleMiddleButtonTap() {
+        isCreatingFirebaseLevels = false
+        let popup = ImportPhotoPopupViewController()
+        popup.modalPresentationStyle = .overFullScreen
+        popup.delegate = self
+        present(popup, animated: false)
+    }
+    
+    // Delegate khi chọn ảnh xong
     func didSelectImage(_ image: UIImage) {
         let cropVC = CropViewController(image: image)
         cropVC.onDidCrop = { [weak self] (croppedImage, category) in
-            self?.handleFirebaseUpload(image: croppedImage, category: category)
+            guard let self = self else { return }
+            
+            if self.isCreatingFirebaseLevels {
+                // Logic Plus Button: 3 cấp độ -> Upload Firebase
+                self.presentCategorySelectionAndUpload(image: croppedImage)
+            } else {
+                // Logic Middle Button: 1 cấp độ -> Lưu Local
+                // LƯU Ý: Với logic mới (Home chỉ hiện Firebase),
+                // thì ảnh tạo bằng MiddleButton (Local) sẽ KHÔNG hiện ở Home
+                // Nó chỉ hiện ở GalleryView hoặc mở chơi ngay lập tức.
+                self.handleCreateOneLevelToLocal(image: croppedImage, category: category)
+            }
         }
         let nav = UINavigationController(rootViewController: cropVC)
         nav.modalPresentationStyle = .fullScreen
         present(nav, animated: true)
     }
     
-    private func handleFirebaseUpload(image: UIImage, category: String) {
+    // MARK: - Helper: Chọn Category từ Firebase
+        private func presentCategorySelectionAndUpload(image: UIImage) {
+            // Hiện loading trong lúc tải danh sách category
+            self.loadingIndicator.startAnimating()
+            self.view.isUserInteractionEnabled = false
+            
+            FirebaseManager.shared.fetchCategories { [weak self] categories in
+                guard let self = self else { return }
+                self.loadingIndicator.stopAnimating()
+                self.view.isUserInteractionEnabled = true
+                
+                // Tạo ActionSheet để chọn
+                let alert = UIAlertController(title: "Chọn Danh Mục", message: "Vui lòng chọn danh mục cho tác phẩm này", preferredStyle: .actionSheet)
+                
+                // Nếu không tải được hoặc danh sách rỗng, thêm mục mặc định
+                let listToShow = categories.isEmpty ? ["Khác", "Động vật", "Phong cảnh"] : categories
+                
+                for category in listToShow {
+                    let action = UIAlertAction(title: category, style: .default) { _ in
+                        // Người dùng chọn xong -> Tiến hành tạo 3 level và Upload
+                        self.handleCreateThreeLevelsToFirebase(image: image, category: category)
+                    }
+                    alert.addAction(action)
+                }
+                
+                // Nút Hủy
+                let cancelAction = UIAlertAction(title: "Hủy bỏ", style: .cancel, handler: nil)
+                alert.addAction(cancelAction)
+                
+                // Cấu hình cho iPad (tránh crash)
+                if let popover = alert.popoverPresentationController {
+                    popover.sourceView = self.view
+                    popover.sourceRect = CGRect(x: self.view.bounds.midX, y: self.view.bounds.midY, width: 0, height: 0)
+                    popover.permittedArrowDirections = []
+                }
+                
+                self.present(alert, animated: true)
+            }
+        }
+    
+    // --- Logic 1: Tạo 3 Level (Firebase) ---
+    private func handleCreateThreeLevelsToFirebase(image: UIImage, category: String) {
         loadingIndicator.startAnimating()
         view.isUserInteractionEnabled = false
         
         DispatchQueue.global(qos: .userInitiated).async {
-            let newId = UUID().uuidString
-            let defaultName = "Pixel Art \(Int.random(in: 100...999))"
-            
-            // 1. Xử lý ảnh
-            if var newLevel = ImageProcessor.shared.processImage(image: image, imageId: newId, targetDimension: 64) {
-                newLevel.name = defaultName
-                newLevel.category = category
-                newLevel.createdAt = Date()
-                
-                // 2. Upload lên Firebase
-                FirebaseManager.shared.uploadLevel(level: newLevel) { [weak self] success in
-                    DispatchQueue.main.async {
-                        // Cho phép tương tác lại ngay
-                        self?.view.isUserInteractionEnabled = true
-                        self?.loadingIndicator.stopAnimating() // Tắt loading ngay
-                        
-                        if success {
-                            print("✅ Upload thành công - Cập nhật HomeView ngay lập tức")
-                            
-                            self?.allLevels.insert(newLevel, at: 0)
-                            
-                            self?.filterLevels()
-                            
-                            self?.mainCollectionView.setContentOffset(.zero, animated: true)
-                            
-                        } else {
-                            let alert = UIAlertController(title: "Lỗi", message: "Không thể upload, vui lòng thử lại.", preferredStyle: .alert)
-                            alert.addAction(UIAlertAction(title: "OK", style: .default))
-                            self?.present(alert, animated: true)
-                        }
-                    }
-                }
-            } else {
+            // BƯỚC 1: Xử lý thô
+            guard let rawData = ImageProcessor.shared.prepareImageData(image: image, targetDimension: 48) else {
                 DispatchQueue.main.async {
                     self.view.isUserInteractionEnabled = true
                     self.loadingIndicator.stopAnimating()
                 }
+                return
             }
-        }    }
+            
+            let groupId = UUID().uuidString
+            let configs = [(1, 10), (2, 20), (3, 30)]
+            var levelsToUpload: [LevelData] = []
+            
+            // BƯỚC 2: Tạo 3 biến thể
+            for config in configs {
+                let newId = UUID().uuidString
+                var newLevel = ImageProcessor.shared.generateLevelFromRawData(
+                    rawData: rawData,
+                    imageId: newId,
+                    groupId: groupId,
+                    difficulty: config.0,
+                    maxColors: config.1
+                )
+                newLevel.name = "Pixel Art"
+                newLevel.category = category
+                newLevel.createdAt = Date() // Thời gian tạo (sẽ lưu lên Firebase)
+                levelsToUpload.append(newLevel)
+            }
+            
+            // BƯỚC 3: Upload
+            let uploadGroup = DispatchGroup()
+            var uploadSuccess = true
+            
+            for level in levelsToUpload {
+                uploadGroup.enter()
+                FirebaseManager.shared.uploadLevel(level: level) { success in
+                    if !success { uploadSuccess = false }
+                    uploadGroup.leave()
+                }
+            }
+            
+            uploadGroup.notify(queue: .main) {
+                self.view.isUserInteractionEnabled = true
+                self.loadingIndicator.stopAnimating()
+                
+                if uploadSuccess {
+                    // Thêm vào danh sách hiện tại để hiển thị ngay
+                    self.allLevels.insert(contentsOf: levelsToUpload, at: 0)
+                    self.refreshDataDisplay()
+                    self.mainCollectionView.setContentOffset(.zero, animated: true)
+                } else {
+                    let alert = UIAlertController(title: "Lỗi", message: "Lỗi upload server", preferredStyle: .alert)
+                    alert.addAction(UIAlertAction(title: "OK", style: .default))
+                    self.present(alert, animated: true)
+                }
+            }
+        }
+    }
     
-    // MARK: - Game Logic
+    // --- Logic 2: Tạo 1 Level (Local - Middle Button) ---
+    private func handleCreateOneLevelToLocal(image: UIImage, category: String) {
+        loadingIndicator.startAnimating()
+        view.isUserInteractionEnabled = false
+        
+        DispatchQueue.global(qos: .userInitiated).async {
+            guard let rawData = ImageProcessor.shared.prepareImageData(image: image, targetDimension: 48) else { return }
+            
+            let newId = UUID().uuidString
+            let defaultName = "My Art \(Int.random(in: 100...999))"
+            
+            // Tạo 1 level
+            var newLevel = ImageProcessor.shared.generateLevelFromRawData(
+                rawData: rawData,
+                imageId: newId,
+                groupId: newId,
+                difficulty: 1,
+                maxColors: 10
+            )
+            
+            newLevel.name = defaultName
+            newLevel.category = category
+            newLevel.isLocked = false
+            newLevel.createdAt = Date()
+            
+            // LƯU THẲNG VÀO LOCAL
+            GameStorageManager.shared.saveLevelProgress(newLevel)
+            
+            DispatchQueue.main.async {
+                self.view.isUserInteractionEnabled = true
+                self.loadingIndicator.stopAnimating()
+                
+                // Chơi luôn (Vì Home không hiện level Local)
+                self.startGame(level: newLevel)
+            }
+        }
+    }
+    
+    // MARK: - Game & Navigation Logic
+    
     private func startGame(level: LevelData) {
+        // Load lại progress từ local (nếu có) trước khi vào chơi
         let levelToPlay = GameStorageManager.shared.loadLevelProgress(originalLevel: level)
         let vm = GameViewModel(level: levelToPlay)
         let vc = GameViewController(viewModel: vm)
@@ -293,7 +431,12 @@ class HomeViewController: UIViewController, UnlockLevelDelegate, ImportPhotoPopu
         present(nav, animated: true)
     }
     
-    // MARK: - Unlock Delegate
+    // Delegate từ DifficultySelectionViewController
+    func didSelectLevelToPlay(_ level: LevelData) {
+        startGame(level: level)
+    }
+    
+    // Delegate mở khóa
     func didTapWatchVideo() {
         let alert = UIAlertController(title: "Watching Ad...", message: "Please wait 2 seconds", preferredStyle: .alert)
         present(alert, animated: true)
@@ -301,14 +444,24 @@ class HomeViewController: UIViewController, UnlockLevelDelegate, ImportPhotoPopu
             alert.dismiss(animated: true) {
                 guard let self = self, let level = self.pendingUnlockLevel else { return }
                 GameStorageManager.shared.markLevelAsUnlocked(id: level.id)
-                self.startGame(level: level)
+                
+                // Check xem có anh em không
+                if let variants = self.allLevelsMap[level.groupId], variants.count > 1 {
+                    self.showDifficultySelection(variants: variants)
+                } else {
+                    self.startGame(level: level)
+                }
                 self.pendingUnlockLevel = nil
             }
         }
     }
+    func didTapCloseUnlockPopup() { pendingUnlockLevel = nil }
     
-    func didTapCloseUnlockPopup() {
-        pendingUnlockLevel = nil
+    private func showDifficultySelection(variants: [LevelData]) {
+        let difficultyVC = DifficultySelectionViewController(levels: variants)
+        difficultyVC.delegate = self
+        difficultyVC.modalPresentationStyle = .overFullScreen
+        present(difficultyVC, animated: true)
     }
 }
 
@@ -326,7 +479,7 @@ extension HomeViewController: UICollectionViewDataSource, UICollectionViewDelega
             return cell
         }
         let cell = collectionView.dequeueReusableCell(withReuseIdentifier: "LevelListCell", for: indexPath) as! LevelListCell
-        cell.configure(level: displayedLevels[indexPath.item])
+        cell.configure(level: displayedLevels[indexPath.item], mode: .fullPreview)
         return cell
     }
     
@@ -336,12 +489,23 @@ extension HomeViewController: UICollectionViewDataSource, UICollectionViewDelega
             categoryCollectionView.reloadData()
             filterLevels()
         } else {
-            let rawLevel = displayedLevels[indexPath.item]
-            let isUnlocked = GameStorageManager.shared.isLevelUnlocked(id: rawLevel.id) || !rawLevel.isLocked
+            // [LOGIC CHỌN LEVEL]
+            let representativeLevel = displayedLevels[indexPath.item]
+            
+            let isUnlocked = GameStorageManager.shared.isLevelUnlocked(id: representativeLevel.id) || !representativeLevel.isLocked
+            
             if isUnlocked {
-                startGame(level: rawLevel)
+                let groupId = representativeLevel.groupId
+                
+                // Nếu là Firebase Level (Có nhóm 3 cấp độ)
+                if let variants = allLevelsMap[groupId], variants.count > 1 {
+                    showDifficultySelection(variants: variants)
+                } else {
+                    // Nếu là Local Level (trường hợp hiếm nếu bạn cho hiện cả local)
+                    startGame(level: representativeLevel)
+                }
             } else {
-                pendingUnlockLevel = rawLevel
+                pendingUnlockLevel = representativeLevel
                 let vc = UnlockLevelViewController()
                 vc.delegate = self
                 vc.modalPresentationStyle = .overFullScreen

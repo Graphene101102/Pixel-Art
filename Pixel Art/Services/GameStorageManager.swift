@@ -70,4 +70,25 @@ class GameStorageManager {
         let unlockedIDs = UserDefaults.standard.stringArray(forKey: "unlockedLevels") ?? []
         return unlockedIDs.contains(id)
     }
+    
+    func loadAllLocalLevels() -> [LevelData] {
+        let documentsUrl = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        do {
+            let fileURLs = try FileManager.default.contentsOfDirectory(at: documentsUrl, includingPropertiesForKeys: nil)
+            var levels: [LevelData] = []
+            for url in fileURLs {
+                if url.pathExtension == "json" {
+                    if let data = try? Data(contentsOf: url),
+                       let level = try? JSONDecoder().decode(LevelData.self, from: data) {
+                        levels.append(level)
+                    }
+                }
+            }
+            // Sắp xếp mặc định: Mới nhất lên đầu
+            return levels.sorted(by: { $0.createdAt > $1.createdAt })
+        } catch {
+            return []
+        }
+    }
+    
 }

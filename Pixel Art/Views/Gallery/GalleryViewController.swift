@@ -2,164 +2,124 @@ import UIKit
 
 class GalleryViewController: UIViewController {
 
-    // Data: Chứa các level ĐANG TÔ (ít nhất 1 pixel màu)
-    private var localLevels: [LevelData] = []
-
-    // MARK: - UI Elements
+    // MARK: - Properties
+    private var levels: [LevelData] = []
     
-    // 1. Ảnh nền toàn màn hình (BG)
+    // MARK: - UI Elements
+    // Nền BG giống Home
     private let backgroundImageView: UIImageView = {
         let iv = UIImageView()
         iv.image = UIImage(named: "BG")
         iv.contentMode = .scaleAspectFill
-        iv.clipsToBounds = true
         return iv
     }()
-
+    
     private let titleLabel: UILabel = {
         let l = UILabel()
         l.text = "Gallery"
-        l.font = .systemFont(ofSize: 24, weight: .medium)
+        l.font = .systemFont(ofSize: 32, weight: .black)
         l.textColor = .black
-        l.textAlignment = .center
         return l
     }()
     
     private var collectionView: UICollectionView!
     
-    private let emptyLabel: UILabel = {
-        let l = UILabel()
-        l.text = "No started artworks yet."
-        l.numberOfLines = 2
-        l.textAlignment = .center
-        l.textColor = .gray
-        l.isHidden = true
-        return l
-    }()
-
+    // MARK: - Lifecycle
     override func viewDidLoad() {
         super.viewDidLoad()
         setupUI()
+        
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(loadData),
+            name: NSNotification.Name("DidUpdateLevelProgress"),
+            object: nil
+        )
     }
     
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         navigationController?.setNavigationBarHidden(true, animated: animated)
-        loadLocalLevels() 
+        loadData()
     }
-
+    
+    deinit { NotificationCenter.default.removeObserver(self) }
+    
+    // MARK: - Data Logic
+    @objc private func loadData() {
+        // Load Local, Không gom nhóm
+        self.levels = GameStorageManager.shared.loadAllLocalLevels()
+        self.collectionView.reloadData()
+    }
+    
+    // MARK: - UI Setup
     private func setupUI() {
         view.backgroundColor = .white
         
-        // Background
+        // 1. Thêm Background
         view.addSubview(backgroundImageView)
-        backgroundImageView.frame = view.bounds
-        backgroundImageView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        backgroundImageView.translatesAutoresizingMaskIntoConstraints = false
+        backgroundImageView.topAnchor.constraint(equalTo: view.topAnchor).isActive = true
+        backgroundImageView.bottomAnchor.constraint(equalTo: view.bottomAnchor).isActive = true
+        backgroundImageView.leadingAnchor.constraint(equalTo: view.leadingAnchor).isActive = true
+        backgroundImageView.trailingAnchor.constraint(equalTo: view.trailingAnchor).isActive = true
         
+        // 2. Title
         view.addSubview(titleLabel)
-        view.addSubview(emptyLabel)
-        
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
-        emptyLabel.translatesAutoresizingMaskIntoConstraints = false
         
-        // Layout CollectionView
+        // 3. CollectionView (Hình vuông)
         let layout = UICollectionViewFlowLayout()
-        let padding: CGFloat = 20
-        let itemWidth = (view.frame.width - (padding * 3)) / 2
+        let padding: CGFloat = 17
+        let itemWidth = (view.frame.width - (padding * 2) - 10) / 2
+        // [SỬA] Height = Width (Hình vuông)
         layout.itemSize = CGSize(width: itemWidth, height: itemWidth)
-        layout.sectionInset = UIEdgeInsets(top: 30, left: 20, bottom: 100, right: 20)
-        layout.minimumLineSpacing = 20
-        layout.minimumInteritemSpacing = 20
+        layout.minimumLineSpacing = 15
+        layout.sectionInset = UIEdgeInsets(top: 10, left: padding, bottom: 100, right: padding)
         
         collectionView = UICollectionView(frame: .zero, collectionViewLayout: layout)
         collectionView.backgroundColor = .clear
-        collectionView.register(GalleryCell.self, forCellWithReuseIdentifier: "GalleryCell")
-        collectionView.dataSource = self
+        collectionView.register(LevelListCell.self, forCellWithReuseIdentifier: "LevelListCell")
         collectionView.delegate = self
-        
-        view.addSubview(collectionView)
+        collectionView.dataSource = self
         collectionView.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(collectionView)
         
         NSLayoutConstraint.activate([
-            // Title
-            titleLabel.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 20),
-            titleLabel.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            titleLabel.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 10),
+            titleLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20),
             
-            // CollectionView
             collectionView.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 20),
             collectionView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             collectionView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            collectionView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-            
-            // Empty Label
-            emptyLabel.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            emptyLabel.centerYAnchor.constraint(equalTo: view.centerYAnchor)
+            collectionView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
         ])
     }
-
-    // MARK: - [LOGIC MỚI] Chỉ load Level Local ĐÃ BẮT ĐẦU TÔ
-    private func loadLocalLevels() {
-        DispatchQueue.global(qos: .userInitiated).async {
-            var results: [LevelData] = []
-            let fileManager = FileManager.default
-            
-            // 1. Tìm đường dẫn thư mục Documents
-            guard let documentsURL = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first else { return }
-            
-            do {
-                // 2. Lấy danh sách tất cả các file
-                let fileURLs = try fileManager.contentsOfDirectory(at: documentsURL, includingPropertiesForKeys: [.contentModificationDateKey])
-                
-                // 3. Lọc ra các file json bắt đầu bằng "progress_"
-                let saveFiles = fileURLs.filter { $0.lastPathComponent.hasPrefix("progress_") && $0.pathExtension == "json" }
-                
-                for url in saveFiles {
-                    // 4. Đọc và Decode file
-                    if let data = try? Data(contentsOf: url),
-                       let level = try? JSONDecoder().decode(LevelData.self, from: data) {
-                        
-                        results.append(level)
-                    }
-                }
-                
-        // 6. Sắp xếp: Cái nào mới lưu gần đây nhất lên đầu (theo ngày tạo file gốc hoặc ngày chỉnh sửa)
-        // Ở đây dùng createdAt của level để sắp xếp
-        results.sort(by: { $0.createdAt > $1.createdAt })
-                
-            } catch {
-                print("Error loading started levels: \(error)")
-            }
-            
-            DispatchQueue.main.async {
-                self.localLevels = results
-                self.collectionView.reloadData()
-                self.emptyLabel.isHidden = !results.isEmpty
-                
-                if results.isEmpty {
-                    self.emptyLabel.text = "No started artworks yet.\nGo to Library and pick one!"
-                }
-            }
-        }
+    
+    private func startGame(level: LevelData) {
+        let vm = GameViewModel(level: level)
+        let vc = GameViewController(viewModel: vm)
+        let nav = UINavigationController(rootViewController: vc)
+        nav.modalPresentationStyle = .fullScreen
+        present(nav, animated: true)
     }
 }
 
-// MARK: - CollectionView Delegate & DataSource
+// MARK: - CollectionView Delegate
 extension GalleryViewController: UICollectionViewDataSource, UICollectionViewDelegate {
     func collectionView(_ collectionView: UICollectionView, numberOfItemsInSection section: Int) -> Int {
-        return localLevels.count
+        return levels.count
     }
     
     func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
-        let cell = collectionView.dequeueReusableCell(withReuseIdentifier: "GalleryCell", for: indexPath) as! GalleryCell
-        cell.configure(level: localLevels[indexPath.item])
+        let cell = collectionView.dequeueReusableCell(withReuseIdentifier: "LevelListCell", for: indexPath) as! LevelListCell
+        // [QUAN TRỌNG] Chế độ .progress để tô nhạt phần chưa tô
+        cell.configure(level: levels[indexPath.item], mode: .progress)
         return cell
     }
     
     func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
-        let level = localLevels[indexPath.item]
-        let vm = GameViewModel(level: level)
-        let vc = GameViewController(viewModel: vm)
-        vc.modalPresentationStyle = .fullScreen
-        present(vc, animated: true)
+        let level = levels[indexPath.item]
+        startGame(level: level)
     }
 }

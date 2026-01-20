@@ -258,17 +258,35 @@ class CanvasView: UIView, UIScrollViewDelegate {
     
     // ... (Giữ nguyên các hàm Helper: updatePixels, getPixelIndex, zoomToPixel...) ...
     // Bạn copy lại các hàm helper này từ code cũ nhé
-    func updatePixels(at indices: [Int]) {
-        guard let level = level else { return }
-        let gridW = CGFloat(level.gridWidth)
+    func updatePixels(at indices: [Int], with newLevelData: LevelData) {
+        // 1. Cập nhật dữ liệu mới nhất cho Canvas và lớp vẽ
+        self.level = newLevelData
+        drawingLayer.level = newLevelData
+        
+        // 2. Tính toán và vẽ lại các ô bị thay đổi
+        let gridW = CGFloat(newLevelData.gridWidth)
         let viewW = containerView.bounds.width
         let viewH = containerView.bounds.height
+        
+        // Tránh chia cho 0
+        if gridW == 0 { return }
+        
         let pixelW = viewW / gridW
-        let pixelH = viewH / CGFloat(level.gridHeight)
+        let pixelH = viewH / CGFloat(newLevelData.gridHeight)
+        
         for index in indices {
-            let col = index % level.gridWidth
-            let row = index / level.gridWidth
-            let rect = CGRect(x: CGFloat(col) * pixelW, y: CGFloat(row) * pixelH, width: pixelW, height: pixelH).insetBy(dx: -0.5, dy: -0.5)
+            let col = index % newLevelData.gridWidth
+            let row = index / newLevelData.gridWidth
+            
+            // Tính toán khung hình chữ nhật của ô cần vẽ lại
+            let rect = CGRect(
+                x: CGFloat(col) * pixelW,
+                y: CGFloat(row) * pixelH,
+                width: pixelW,
+                height: pixelH
+            ).insetBy(dx: -0.5, dy: -0.5) // Mở rộng biên xíu để tránh viền trắng
+            
+            // Chỉ yêu cầu vẽ lại đúng vùng này
             drawingLayer.setNeedsDisplay(rect)
         }
     }
