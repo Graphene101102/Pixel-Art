@@ -1,7 +1,7 @@
 import UIKit
 import Combine
 
-class GameViewController: UIViewController, UIGestureRecognizerDelegate, BackgroundSelectionDelegate, GetSupportItemDelegate {
+class GameViewController: UIViewController, UIGestureRecognizerDelegate, BackgroundSelectionDelegate, GetSupportItemDelegate, ExitConfirmationDelegate {
     
     // MARK: - Properties
     private let viewModel: GameViewModel
@@ -123,6 +123,8 @@ class GameViewController: UIViewController, UIGestureRecognizerDelegate, Backgro
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         navigationController?.setNavigationBarHidden(true, animated: animated)
+        
+        viewModel.refreshState()
     }
     
     override func viewDidAppear(_ animated: Bool) {
@@ -131,7 +133,9 @@ class GameViewController: UIViewController, UIGestureRecognizerDelegate, Backgro
         // Tự động lưu 1 lần khi vào game để chắc chắn file tồn tại
         viewModel.saveProgress()
         
-        if viewModel.isMusicOn.value { SoundManager.shared.playBackgroundMusic() }
+        if SoundManager.shared.isMusicEnabled {
+                    SoundManager.shared.playBackgroundMusic()
+                }
         
         // Tắt tính năng vuốt cạnh để back (tránh vuốt nhầm khi tô màu)
         navigationController?.interactivePopGestureRecognizer?.isEnabled = false
@@ -468,11 +472,9 @@ class GameViewController: UIViewController, UIGestureRecognizerDelegate, Backgro
         // Lưu lần cuối trước khi thoát
         viewModel.saveProgress()
         
-        if let nav = navigationController, nav.viewControllers.count > 1 {
-            nav.popViewController(animated: true)
-        } else {
-            dismiss(animated: true, completion: nil)
-        }
+        let popup = ExitConfirmationViewController()
+                popup.delegate = self
+                present(popup, animated: true)
     }
     
     // Nút chọn nền (BG)
@@ -639,6 +641,17 @@ class GameViewController: UIViewController, UIGestureRecognizerDelegate, Backgro
             UIView.animate(withDuration: 0.1) { btn.transform = .identity }
         }
     }
+    
+    func didConfirmExit() {
+            // Lưu dữ liệu lần cuối
+            viewModel.saveProgress()
+            
+            if let nav = navigationController, nav.viewControllers.count > 1 {
+                nav.popViewController(animated: true)
+            } else {
+                dismiss(animated: true, completion: nil)
+            }
+        }
 }
 
 // MARK: - Extensions: CollectionView Delegate
@@ -667,4 +680,6 @@ extension GameViewController: UICollectionViewDataSource, UICollectionViewDelega
     func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
         viewModel.selectedColorIndex.send(indexPath.item)
     }
+    
+    
 }

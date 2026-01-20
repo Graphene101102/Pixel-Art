@@ -27,16 +27,29 @@ class MainTabController: UITabBarController, ImportPhotoPopupDelegate {
     }
     
     private func setupTabs() {
-        let homeVC = HomeViewController(); let homeNav = UINavigationController(rootViewController: homeVC); homeNav.tabBarItem = UITabBarItem(title: nil, image: UIImage(named: "HomeIcon"), selectedImage: nil)
-        let clipboardVC = UIViewController(); clipboardVC.view.backgroundColor = .white; clipboardVC.tabBarItem = UITabBarItem(title: nil, image: UIImage(named: "dailyIcon"), selectedImage: nil)
-        let placeholderVC = UIViewController(); placeholderVC.tabBarItem.isEnabled = false
-        let galleryVC = GalleryViewController(); let galleryNav = UINavigationController(rootViewController: galleryVC); galleryNav.tabBarItem = UITabBarItem(title: nil, image: UIImage(named: "galleryIcon"), selectedImage: nil)
-        let settingsVC = UIViewController(); settingsVC.view.backgroundColor = .white; settingsVC.tabBarItem = UITabBarItem(title: nil, image: UIImage(named: "settingIcon"), selectedImage: nil)
+        let homeVC = HomeViewController();
+        let homeNav = UINavigationController(rootViewController: homeVC);
+        homeNav.tabBarItem = UITabBarItem(title: nil, image: UIImage(named: "HomeIcon"), selectedImage: nil)
+        
+        let clipboardVC = UIViewController();
+        clipboardVC.view.backgroundColor = .white;
+        clipboardVC.tabBarItem = UITabBarItem(title: nil, image: UIImage(named: "dailyIcon"), selectedImage: nil)
+        
+        let placeholderVC = UIViewController();
+        placeholderVC.tabBarItem.isEnabled = false
+        
+        let galleryVC = GalleryViewController();
+        let galleryNav = UINavigationController(rootViewController: galleryVC);
+        galleryNav.tabBarItem = UITabBarItem(title: nil, image: UIImage(named: "galleryIcon"), selectedImage: nil)
+        
+        let settingsVC = SettingsViewController()
+        let settingsNav = UINavigationController(rootViewController: settingsVC)
+        settingsNav.tabBarItem = UITabBarItem(title: nil, image: UIImage(named: "settingIcon"), selectedImage: nil)
         
         let itemInsets = UIEdgeInsets(top: 6, left: 0, bottom: -6, right: 0)
         for item in [homeNav, clipboardVC, galleryNav, settingsVC] { item.tabBarItem.imageInsets = itemInsets }
         
-        viewControllers = [homeNav, clipboardVC, placeholderVC, galleryNav, settingsVC]
+        viewControllers = [homeNav, clipboardVC, placeholderVC, galleryNav, settingsNav]
         tabBar.backgroundColor = .white; tabBar.tintColor = UIColor(hex: "#3475CB"); tabBar.unselectedItemTintColor = UIColor(hex: "#828282")
         tabBar.layer.shadowColor = UIColor.black.cgColor; tabBar.layer.shadowOpacity = 0.05; tabBar.layer.shadowOffset = CGSize(width: 0, height: -2); tabBar.layer.shadowRadius = 5
         tabBar.backgroundImage = UIImage(); tabBar.shadowImage = UIImage()

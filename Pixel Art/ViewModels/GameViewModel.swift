@@ -3,29 +3,23 @@ import Combine
 
 class GameViewModel {
     
-    // MARK: - Publishers (Đã tối ưu luồng)
-    
-    // 1. Dùng PassthroughSubject thay vì CurrentValueSubject để tránh tự động bắn tin khi không cần thiết
-    // Chỉ dùng khi cần vẽ lại TOÀN BỘ (Lúc mới vào game, lúc Reset Zoom)
+    // MARK: - Publishers
     let levelSubject = PassthroughSubject<LevelData, Never>()
-    
-    // 2. Dùng để báo hiệu cập nhật từng ô (Tối ưu hiệu năng tô màu)
     let changesSubject = PassthroughSubject<[Int], Never>()
-    
-    // 3. Các sự kiện khác giữ nguyên
     let selectedColorIndex = CurrentValueSubject<Int, Never>(0)
     let isComplete = PassthroughSubject<Void, Never>()
-    let isMusicOn = CurrentValueSubject<Bool, Never>(true)
+    
+    // [SỬA LỖI] Khởi tạo với giá trị thực tế từ SoundManager (để icon đồng bộ với Setting)
+    let isMusicOn = CurrentValueSubject<Bool, Never>(SoundManager.shared.isMusicEnabled)
+    
     let isMagicWandMode = CurrentValueSubject<Bool, Never>(false)
     let resetZoomRequest = PassthroughSubject<Void, Never>()
     
-    // MARK: - Data Storage (Lưu trữ dữ liệu thực tế)
-    // Thay vì dựa vào Subject để giữ dữ liệu, ta dùng biến riêng
+    // MARK: - Data Storage
     private(set) var currentLevelData: LevelData
     
     var currentNumber: Int { selectedColorIndex.value + 1 }
     
-    // Biến đếm tối ưu check win (O(1) thay vì duyệt mảng)
     private var coloredPixelsCount: Int = 0
     private var totalColorablePixels: Int = 0
     
@@ -51,14 +45,12 @@ class GameViewModel {
         self.calculateProgressInfo()
     }
     
-    // Tính toán trước số lượng pixel để check win nhanh
     private func calculateProgressInfo() {
         let pixels = currentLevelData.pixels
         self.totalColorablePixels = pixels.filter { $0.number > 0 }.count
         self.coloredPixelsCount = pixels.filter { $0.number > 0 && $0.isColored }.count
     }
     
-    // [QUAN TRỌNG] Hàm này được gọi từ VC khi viewDidAppear để vẽ lần đầu
     func loadInitialLevel() {
         levelSubject.send(currentLevelData)
     }
@@ -69,7 +61,6 @@ class GameViewModel {
         gameplayTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
             guard let self = self else { return }
             self.currentLevelData.timeSpent += 1
-            // Không bắn levelSubject ở đây để tránh vẽ lại UI
         }
     }
     
@@ -113,7 +104,8 @@ class GameViewModel {
         if !pixel.isColored && pixel.number == currentNumber {
             attemptToColor(indices: [index])
         } else if !pixel.isColored && pixel.number > 0 {
-            UINotificationFeedbackGenerator().notificationOccurred(.error)
+            // [SỬA LỖI] Gọi qua SoundManager để check cài đặt
+            SoundManager.shared.triggerHaptic(type: .error)
         }
     }
     
@@ -121,15 +113,11 @@ class GameViewModel {
         var changedIndices: [Int] = []
         var didColor = false
         
-        // Thao tác trực tiếp trên biến currentLevelData
         for index in indices {
             if index < currentLevelData.pixels.count {
                 if !currentLevelData.pixels[index].isColored && currentLevelData.pixels[index].number == currentNumber {
-                    
-                    // Cập nhật trạng thái
                     currentLevelData.pixels[index].isColored = true
-                    coloredPixelsCount += 1 // Tăng biến đếm
-                    
+                    coloredPixelsCount += 1
                     changedIndices.append(index)
                     didColor = true
                 }
@@ -137,19 +125,16 @@ class GameViewModel {
         }
         
         if didColor {
-            // [CỰC KỲ QUAN TRỌNG]
-            // Chỉ gửi danh sách index thay đổi.
-            // KHÔNG gửi levelSubject.send() để tránh vẽ lại toàn bộ.
             changesSubject.send(changedIndices)
             
-            // Logic check win tối ưu
             if coloredPixelsCount >= totalColorablePixels {
                 handleWin()
             } else {
                 scheduleAutoSave()
             }
             
-            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            // [SỬA LỖI] Gọi qua SoundManager
+            SoundManager.shared.triggerImpact(style: .light)
         }
     }
     
@@ -181,11 +166,24 @@ class GameViewModel {
             changesSubject.send(changedIndices)
             if coloredPixelsCount >= totalColorablePixels { handleWin() }
             else { scheduleAutoSave() }
-            UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
+            
+            // [SỬA LỖI] Gọi qua SoundManager
+            SoundManager.shared.triggerImpact(style: .heavy)
         }
     }
     
     // MARK: - Helpers & Save
+    
+    //Đồng bộ trạng thái khi quay lại từ màn hình khác (Setting)
+        func refreshState() {
+            // Lấy giá trị thực tế từ SoundManager và bắn tín hiệu cập nhật UI
+            let isEnabled = SoundManager.shared.isMusicEnabled
+            
+            // Chỉ gửi nếu giá trị khác nhau để tránh lặp (optional, nhưng tốt cho hiệu năng)
+            if isMusicOn.value != isEnabled {
+                isMusicOn.send(isEnabled)
+            }
+        }
     
     private func handleWin() {
         stopGameplayTimer()
@@ -196,12 +194,12 @@ class GameViewModel {
     }
     
     func toggleMusic() {
+        // [SỬA LỖI] Logic đồng bộ chuẩn
         SoundManager.shared.toggleMute()
-        isMusicOn.send(!SoundManager.shared.isMuted)
+        isMusicOn.send(SoundManager.shared.isMusicEnabled)
     }
     
     func triggerFitToScreen() { resetZoomRequest.send() }
-    
     func triggerCheckButton() { isComplete.send() }
     
     func findUncoloredPixelIndex() -> Int? {

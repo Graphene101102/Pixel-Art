@@ -1,67 +1,86 @@
+import UIKit
 import AVFoundation
 
 class SoundManager {
     static let shared = SoundManager()
     
     private var audioPlayer: AVAudioPlayer?
-    var isMuted: Bool = false
     
-    private init() {
-        // Cấu hình để nhạc không bị ngắt bởi chế độ im lặng (Silent mode) của iPhone
-        do {
-            try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
-            try AVAudioSession.sharedInstance().setActive(true)
-        } catch {
-            print("Lỗi AudioSession: \(error)")
+    // Keys lưu UserDefaults
+    private let kMusicKey = "kMusicEnabled"
+    private let kHapticKey = "kHapticEnabled"
+    
+    var isMusicEnabled: Bool {
+        get { UserDefaults.standard.object(forKey: kMusicKey) as? Bool ?? true }
+        set {
+            UserDefaults.standard.set(newValue, forKey: kMusicKey)
+            if newValue { playBackgroundMusic() } else { stopBackgroundMusic() }
         }
     }
     
-    func playBackgroundMusic() {
-        // Nếu đang mute thì không phát
-        if isMuted { return }
-        
-        // 1. Nếu đang phát rồi -> Bỏ qua (Không phát lại từ đầu)
-        if let player = audioPlayer, player.isPlaying {
-            return
-        }
-        
-        // 2. Nếu đã có player (đang Pause) -> Resume (Phát tiếp)
-        if let player = audioPlayer {
-            player.play()
-            return
-        }
-        
-        // 3. Nếu chưa có (Lần đầu) -> Khởi tạo và phát
+    var isHapticEnabled: Bool {
+        get { UserDefaults.standard.object(forKey: kHapticKey) as? Bool ?? true }
+        set { UserDefaults.standard.set(newValue, forKey: kHapticKey) }
+    }
+    
+    private init() {
+        setupAudio()
+    }
+    
+    private func setupAudio() {
         guard let url = Bundle.main.url(forResource: "bgm", withExtension: "mp3") else {
-            print("⚠️ Không tìm thấy file nhạc!")
+            print("❌ Lỗi: Không tìm thấy file bg_music.mp3 trong Bundle.")
             return
         }
         
         do {
             audioPlayer = try AVAudioPlayer(contentsOf: url)
-            audioPlayer?.numberOfLoops = -1 // Lặp vô tận
-            audioPlayer?.volume = 0.5       // Âm lượng vừa phải
-            audioPlayer?.prepareToPlay()
-            audioPlayer?.play()
+            audioPlayer?.numberOfLoops = -1 // Lặp vô hạn
+            audioPlayer?.volume = 0.5
+            audioPlayer?.prepareToPlay() // Load trước vào bộ nhớ đệm
         } catch {
-            print("Lỗi khởi tạo nhạc: \(error.localizedDescription)")
+            print("❌ Lỗi load trình phát nhạc: \(error)")
         }
     }
     
-    // Tạm dừng (giữ vị trí phát)
+    func playBackgroundMusic() {
+        if isMusicEnabled {
+            if audioPlayer?.isPlaying == false {
+                audioPlayer?.play()
+            }
+        }
+    }
+    
     func pauseBackgroundMusic() {
-        if let player = audioPlayer, player.isPlaying {
-            player.pause()
+        if audioPlayer?.isPlaying == true {
+            audioPlayer?.pause()
         }
     }
     
-    // Hàm này tắt hẳn (reset về 0)
     func stopBackgroundMusic() {
         audioPlayer?.stop()
         audioPlayer?.currentTime = 0
     }
     
     func toggleMute() {
-        isMuted.toggle()
+        isMusicEnabled = !isMusicEnabled
+    }
+    
+    // [QUAN TRỌNG] Hàm rung tập trung
+    // Tất cả ViewModel phải gọi hàm này thay vì tự tạo Generator
+    func triggerHaptic(type: UINotificationFeedbackGenerator.FeedbackType) {
+        if isHapticEnabled {
+            let generator = UINotificationFeedbackGenerator()
+            generator.prepare()
+            generator.notificationOccurred(type)
+        }
+    }
+    
+    func triggerImpact(style: UIImpactFeedbackGenerator.FeedbackStyle) {
+        if isHapticEnabled {
+            let generator = UIImpactFeedbackGenerator(style: style)
+            generator.prepare()
+            generator.impactOccurred()
+        }
     }
 }

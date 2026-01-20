@@ -4,7 +4,7 @@ protocol DifficultySelectionDelegate: AnyObject {
     func didSelectLevelToPlay(_ level: LevelData)
 }
 
-class DifficultySelectionViewController: UIViewController {
+class DifficultySelectionViewController: UIViewController, ExitConfirmationDelegate {
     
     weak var delegate: DifficultySelectionDelegate?
     private let levelVariants: [LevelData]
@@ -239,15 +239,13 @@ class DifficultySelectionViewController: UIViewController {
     
     // [ACTION] Nút Back -> Quay lại Home
     @objc private func didTapBack() {
-        // Hiệu ứng nút nhún nhẹ
-        UIView.animate(withDuration: 0.1, animations: {
-            self.backButton.transform = CGAffineTransform(scaleX: 0.9, y: 0.9)
-        }) { _ in
-            UIView.animate(withDuration: 0.1) {
-                self.backButton.transform = .identity
-            } completion: { _ in
-                self.dismiss(animated: true, completion: nil)
-            }
-        }
+        // Hiện Popup
+        let popup = ExitConfirmationViewController()
+        popup.delegate = self
+        present(popup, animated: true)
+    }
+    
+    func didConfirmExit() {
+        dismiss(animated: true, completion: nil)
     }
 }
