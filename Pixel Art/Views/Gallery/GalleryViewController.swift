@@ -6,14 +6,6 @@ class GalleryViewController: UIViewController {
     private var levels: [LevelData] = []
     
     // MARK: - UI Elements
-    // Nền BG giống Home
-    private let backgroundImageView: UIImageView = {
-        let iv = UIImageView()
-        iv.image = UIImage(named: "BG")
-        iv.contentMode = .scaleAspectFill
-        return iv
-    }()
-    
     private let titleLabel: UILabel = {
         let l = UILabel()
         l.text = "Gallery"
@@ -57,12 +49,11 @@ class GalleryViewController: UIViewController {
         view.backgroundColor = .white
         
         // 1. Thêm Background
-        view.addSubview(backgroundImageView)
-        backgroundImageView.translatesAutoresizingMaskIntoConstraints = false
-        backgroundImageView.topAnchor.constraint(equalTo: view.topAnchor).isActive = true
-        backgroundImageView.bottomAnchor.constraint(equalTo: view.bottomAnchor).isActive = true
-        backgroundImageView.leadingAnchor.constraint(equalTo: view.leadingAnchor).isActive = true
-        backgroundImageView.trailingAnchor.constraint(equalTo: view.trailingAnchor).isActive = true
+        let bgView = AppBackgroundView()
+        view.addSubview(bgView)
+        bgView.frame = view.bounds
+        bgView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        view.sendSubviewToBack(bgView)
         
         // 2. Title
         view.addSubview(titleLabel)
@@ -101,7 +92,16 @@ class GalleryViewController: UIViewController {
         let vc = GameViewController(viewModel: vm)
         let nav = UINavigationController(rootViewController: vc)
         nav.modalPresentationStyle = .fullScreen
-        present(nav, animated: true)
+        
+        let transition = CATransition()
+        transition.duration = 0.4
+        transition.type = .push
+        
+        transition.subtype = .fromRight
+        transition.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        self.view.window?.layer.add(transition, forKey: kCATransition)
+        
+        present(nav, animated: false)
     }
 }
 

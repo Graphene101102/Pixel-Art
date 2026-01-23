@@ -5,7 +5,7 @@ class CategoryCell: UICollectionViewCell {
     
     override init(frame: CGRect) {
         super.init(frame: frame)
-        contentView.layer.cornerRadius = 15
+        contentView.layer.cornerRadius = self.frame.height / 2
         contentView.layer.borderWidth = 1
         
         label.font = .systemFont(ofSize: 14, weight: .medium)
@@ -29,7 +29,7 @@ class CategoryCell: UICollectionViewCell {
             contentView.layer.borderColor = UIColor(hex: "#3475CB").cgColor
             label.textColor = .white
         } else {
-            contentView.backgroundColor = .clear
+            contentView.backgroundColor = .white
             contentView.layer.borderColor = UIColor(hex: "#E0E0E0").cgColor
             label.textColor = UIColor(hex: "#828282")
         }

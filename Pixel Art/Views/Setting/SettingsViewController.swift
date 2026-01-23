@@ -7,7 +7,7 @@ class SettingsViewController: UIViewController {
     private let titleLabel = UILabel()
     
     private let scrollView = UIScrollView()
-    private let stackView = UIStackView() // Chứa các Section
+    private let stackView = UIStackView()
     
     // MARK: - Lifecycle
     override func viewDidLoad() {
@@ -23,8 +23,11 @@ class SettingsViewController: UIViewController {
     
     // MARK: - Setup UI
     private func setupUI() {
-        // Màu nền xanh nhạt giống ảnh
-        view.backgroundColor = UIColor(hex: "#F0F4F8")
+        let bgView = AppBackgroundView()
+        view.addSubview(bgView)
+        bgView.frame = view.bounds
+        bgView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        view.sendSubviewToBack(bgView)
         
         // --- Header ---
         headerView.backgroundColor = .clear
@@ -50,7 +53,7 @@ class SettingsViewController: UIViewController {
         stackView.translatesAutoresizingMaskIntoConstraints = false
         
         // Constraints
-        NSLayoutConstraint.activate([
+        NSLayoutConstraint.activate([   
             // Header
             headerView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
             headerView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
@@ -83,6 +86,7 @@ class SettingsViewController: UIViewController {
         section1.addArrangedSubview(musicRow)
         section1.addArrangedSubview(createSeparator())
         section1.addArrangedSubview(soundRow)
+        
         
         // Section 2: General
         let section2 = createSectionContainer()
@@ -126,9 +130,14 @@ class SettingsViewController: UIViewController {
         container.spacing = 0
         container.backgroundColor = .white
         container.layer.cornerRadius = 16
-        container.layer.masksToBounds = true
-        // Shadow (Phải bọc trong 1 view khác nếu muốn shadow chuẩn, nhưng đây set layer cho stackview nền trắng)
-        // Cách tốt nhất là bọc stackview trong UIView để đổ bóng
+        
+        container.layer.masksToBounds = false
+        
+        container.layer.shadowColor = UIColor.black.cgColor
+        container.layer.shadowOpacity = 0.2
+        container.layer.shadowOffset = CGSize(width: 1, height: 4)
+        container.layer.shadowRadius = 12
+        
         return container
     }
     

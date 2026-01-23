@@ -9,7 +9,7 @@ class GameViewModel {
     let selectedColorIndex = CurrentValueSubject<Int, Never>(0)
     let isComplete = PassthroughSubject<Void, Never>()
     
-    // [SỬA LỖI] Khởi tạo với giá trị thực tế từ SoundManager (để icon đồng bộ với Setting)
+    // Khởi tạo với giá trị thực tế từ SoundManager
     let isMusicOn = CurrentValueSubject<Bool, Never>(SoundManager.shared.isMusicEnabled)
     
     let isMagicWandMode = CurrentValueSubject<Bool, Never>(false)
@@ -104,7 +104,6 @@ class GameViewModel {
         if !pixel.isColored && pixel.number == currentNumber {
             attemptToColor(indices: [index])
         } else if !pixel.isColored && pixel.number > 0 {
-            // [SỬA LỖI] Gọi qua SoundManager để check cài đặt
             SoundManager.shared.triggerHaptic(type: .error)
         }
     }
@@ -133,7 +132,6 @@ class GameViewModel {
                 scheduleAutoSave()
             }
             
-            // [SỬA LỖI] Gọi qua SoundManager
             SoundManager.shared.triggerImpact(style: .light)
         }
     }
@@ -167,23 +165,19 @@ class GameViewModel {
             if coloredPixelsCount >= totalColorablePixels { handleWin() }
             else { scheduleAutoSave() }
             
-            // [SỬA LỖI] Gọi qua SoundManager
             SoundManager.shared.triggerImpact(style: .heavy)
         }
     }
     
     // MARK: - Helpers & Save
     
-    //Đồng bộ trạng thái khi quay lại từ màn hình khác (Setting)
-        func refreshState() {
-            // Lấy giá trị thực tế từ SoundManager và bắn tín hiệu cập nhật UI
-            let isEnabled = SoundManager.shared.isMusicEnabled
-            
-            // Chỉ gửi nếu giá trị khác nhau để tránh lặp (optional, nhưng tốt cho hiệu năng)
-            if isMusicOn.value != isEnabled {
-                isMusicOn.send(isEnabled)
-            }
+    func refreshState() {
+        // Đồng bộ trạng thái khi quay lại từ màn hình khác
+        let isEnabled = SoundManager.shared.isMusicEnabled
+        if isMusicOn.value != isEnabled {
+            isMusicOn.send(isEnabled)
         }
+    }
     
     private func handleWin() {
         stopGameplayTimer()
@@ -194,7 +188,6 @@ class GameViewModel {
     }
     
     func toggleMusic() {
-        // [SỬA LỖI] Logic đồng bộ chuẩn
         SoundManager.shared.toggleMute()
         isMusicOn.send(SoundManager.shared.isMusicEnabled)
     }

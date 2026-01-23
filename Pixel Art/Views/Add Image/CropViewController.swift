@@ -211,38 +211,40 @@ class CropViewController: UIViewController {
     
     // MARK: - Logic Cắt Ảnh (ĐÃ SỬA)
     private func cropImage() -> UIImage? {
-        // Phương pháp mới: Tính toán dựa trên contentOffset và zoomScale của ScrollView
-        // Cách này chính xác hơn việc convert frame khi view đang bị transform (zoom).
-        
-        // 1. Tỉ lệ scale giữa ảnh gốc (pixels) và ảnh hiển thị trên màn hình (points)
-        // imageView.frame.width là kích thước đã bị zoom trên màn hình
-        let scale = originalImage.size.width / imageView.frame.width
-        
-        // 2. Tính điểm bắt đầu hiển thị (Top-Left) trên ảnh đang zoom
-        // contentOffset là vị trí cuộn. Cần cộng thêm contentInset để biết điểm bắt đầu thực sự của nội dung ảnh so với khung nhìn.
-        let visibleStartPointX = scrollView.contentOffset.x + scrollView.contentInset.left
-        let visibleStartPointY = scrollView.contentOffset.y + scrollView.contentInset.top
-        
-        // 3. Kích thước cạnh hình vuông crop trên màn hình
-        let cropSidePoints = cropBoxView.frame.width
-        
-        // 4. Quy đổi từ tọa độ màn hình (Points) sang tọa độ ảnh gốc (Pixels)
-        // Nhân với tỉ lệ scale đã tính ở bước 1.
-        let finalCropRect = CGRect(
-            x: visibleStartPointX * scale,
-            y: visibleStartPointY * scale,
-            width: cropSidePoints * scale,
-            height: cropSidePoints * scale
-        )
-        
-        // 5. Thực hiện cắt trên CGImage
-        guard let cgImage = originalImage.cgImage?.cropping(to: finalCropRect) else {
-            print("Could not crop image")
+        // 1. Chuẩn hoá hướng ảnh về .up để toạ độ không bị đảo lộn
+        // Bước này cực kỳ quan trọng với ảnh chụp từ Camera
+        guard let fixedImage = originalImage.normalizedImage(),
+              let cgImage = fixedImage.cgImage else {
             return nil
         }
         
-        // Tạo UIImage mới từ phần đã cắt, giữ nguyên hướng ảnh gốc
-        return UIImage(cgImage: cgImage, scale: originalImage.scale, orientation: originalImage.imageOrientation)
+        // 2. Chuyển đổi toạ độ khung Crop (màn hình) sang toạ độ trên ImageView
+        let cropRectInView = view.convert(cropBoxView.frame, to: imageView)
+        
+        // 3. Tính tỷ lệ scale giữa ảnh thực tế (Pixel) và ảnh hiển thị (Point)
+        // Vì ảnh đã normalized nên dùng chiều rộng nào làm chuẩn cũng được
+        let scale = CGFloat(cgImage.width) / imageView.bounds.width
+        
+        // 4. Tính khung cắt thực tế (Pixel)
+        var cropRectInImage = CGRect(
+            x: cropRectInView.origin.x * scale,
+            y: cropRectInView.origin.y * scale,
+            width: cropRectInView.size.width * scale,
+            height: cropRectInView.size.height * scale
+        )
+        
+        // 5. [QUAN TRỌNG] Ép buộc về hình vuông tuyệt đối
+        // Lấy cạnh nhỏ nhất làm chuẩn để đảm bảo không bị cắt lẹm ra ngoài
+        let sideLength = min(cropRectInImage.width, cropRectInImage.height)
+        cropRectInImage.size = CGSize(width: sideLength, height: sideLength)
+        
+        // 6. Cắt ảnh
+        guard let croppedCgImage = cgImage.cropping(to: cropRectInImage) else {
+            return nil
+        }
+        
+        // Trả về ảnh mới (scale 1.0 vì đã cắt trên pixel thật)
+        return UIImage(cgImage: croppedCgImage)
     }
 }
 
@@ -251,5 +253,17 @@ extension CropViewController: UIScrollViewDelegate {
     // Cho biết view nào sẽ được zoom trong scrollview
     func viewForZooming(in scrollView: UIScrollView) -> UIView? {
         return imageView
+    }
+}
+
+extension UIImage {
+    func normalizedImage() -> UIImage? {
+        if self.imageOrientation == .up { return self }
+        
+        UIGraphicsBeginImageContextWithOptions(self.size, false, self.scale)
+        self.draw(in: CGRect(origin: .zero, size: self.size))
+        let normalizedImage = UIGraphicsGetImageFromCurrentImageContext()
+        UIGraphicsEndImageContext()
+        return normalizedImage
     }
 }

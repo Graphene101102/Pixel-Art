@@ -158,16 +158,19 @@
 				DEVELOPMENT_TEAM = 5QNVVS6XG5;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "Pixel Art/Resources/Info.plist";
+				INFOPLIST_KEY_NSCameraUsageDescription = "The app needs access to your camera so you can take photos and create Pixel Art.";
+				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "The app needs permission to save your Pixel Art artwork to your photo library.";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "The app needs access permissions to select sample images from the library.";
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
-				IPHONEOS_DEPLOYMENT_TARGET = 16.6;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.6;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "graphene.Pixel-Art";
+				PRODUCT_BUNDLE_IDENTIFIER = "graphene.Pixel-Art1";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -191,16 +194,19 @@
 				DEVELOPMENT_TEAM = 5QNVVS6XG5;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "Pixel Art/Resources/Info.plist";
+				INFOPLIST_KEY_NSCameraUsageDescription = "The app needs access to your camera so you can take photos and create Pixel Art.";
+				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "The app needs permission to save your Pixel Art artwork to your photo library.";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "The app needs access permissions to select sample images from the library.";
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
-				IPHONEOS_DEPLOYMENT_TARGET = 16.6;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.6;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "graphene.Pixel-Art";
+				PRODUCT_BUNDLE_IDENTIFIER = "graphene.Pixel-Art1";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;

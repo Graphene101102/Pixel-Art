@@ -1,66 +1,63 @@
 import UIKit
 
-// MARK: - CANVAS VIEW
+// MARK: - CANVAS VIEW (FINAL VISUAL TWEAKS & NEW ANIMATION)
 class CanvasView: UIView, UIScrollViewDelegate {
     
     // 1. SCROLL VIEW
     private let scrollView: UIScrollView = {
         let sv = UIScrollView()
-        // Cấu hình Zoom cơ bản
         sv.minimumZoomScale = 1.0
-        sv.maximumZoomScale = 5.0
+        sv.maximumZoomScale = 5.0 // Max zoom level
         sv.bouncesZoom = true
-        
-        // Ẩn thanh cuộn để nhìn cho đẹp
         sv.showsHorizontalScrollIndicator = false
         sv.showsVerticalScrollIndicator = false
         sv.backgroundColor = .clear
-        
-        // Cho phép nảy (rubber banding)
         sv.alwaysBounceHorizontal = true
         sv.alwaysBounceVertical = true
-        
-        // Tắt tự động chỉnh inset (quan trọng để tự căn giữa)
         sv.contentInsetAdjustmentBehavior = .never
         return sv
     }()
     
-    // 2. CONTAINER
     private let containerView: UIView = {
-        let v = UIView()
-        v.backgroundColor = .clear
-        return v
+        let v = UIView(); v.backgroundColor = .clear; return v
     }()
     
-    private let drawingLayer = NumberOverlayView()
+    // LAYER 1: Lưới + Số + Nền Hint (Nằm dưới)
+    private let gridLayer = GridNumberView()
+    // LAYER 2: Màu đã tô (Nằm đè lên trên)
+    private let colorLayer = ColoringView()
+    
     private var level: LevelData?
     private var lastZoomStep: Int = 0
-    
-    // Biến cờ: True = Chế độ kết quả (Xem ảnh), False = Chế độ chơi (Vẽ)
     private var isResultMode: Bool = false
     
-    // Expose Gesture cho GameViewController xử lý xung đột
+    // Animation Pool
+    private var animationViewPool: [UIView] = []
+    
     var scrollViewPanGesture: UIPanGestureRecognizer {
         return scrollView.panGestureRecognizer
     }
     
-    override init(frame: CGRect) {
-        super.init(frame: frame)
-        setupUI()
-    }
-    
+    override init(frame: CGRect) { super.init(frame: frame); setupUI() }
     required init?(coder: NSCoder) { fatalError() }
     
     private func setupUI() {
         self.backgroundColor = .clear
-        
         scrollView.delegate = self
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(scrollView)
         
         scrollView.addSubview(containerView)
-        drawingLayer.translatesAutoresizingMaskIntoConstraints = false
-        containerView.addSubview(drawingLayer)
+        
+        // Add Layers
+        gridLayer.translatesAutoresizingMaskIntoConstraints = false
+        gridLayer.backgroundColor = .clear
+        gridLayer.layer.drawsAsynchronously = true
+        containerView.addSubview(gridLayer)
+        
+        colorLayer.translatesAutoresizingMaskIntoConstraints = false
+        colorLayer.backgroundColor = .clear
+        containerView.addSubview(colorLayer)
         
         NSLayoutConstraint.activate([
             scrollView.topAnchor.constraint(equalTo: topAnchor),
@@ -68,37 +65,51 @@ class CanvasView: UIView, UIScrollViewDelegate {
             scrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
             
-            drawingLayer.topAnchor.constraint(equalTo: containerView.topAnchor),
-            drawingLayer.bottomAnchor.constraint(equalTo: containerView.bottomAnchor),
-            drawingLayer.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
-            drawingLayer.trailingAnchor.constraint(equalTo: containerView.trailingAnchor)
+            gridLayer.topAnchor.constraint(equalTo: containerView.topAnchor),
+            gridLayer.bottomAnchor.constraint(equalTo: containerView.bottomAnchor),
+            gridLayer.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
+            gridLayer.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
+            
+            colorLayer.topAnchor.constraint(equalTo: containerView.topAnchor),
+            colorLayer.bottomAnchor.constraint(equalTo: containerView.bottomAnchor),
+            colorLayer.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
+            colorLayer.trailingAnchor.constraint(equalTo: containerView.trailingAnchor)
         ])
+        
+        // Init Pool
+        for _ in 0..<30 {
+            let v = UIView()
+            v.isUserInteractionEnabled = false
+            // [Change] clipsToBounds = false để vẽ shadow (glow) ra ngoài
+            v.clipsToBounds = false
+            animationViewPool.append(v)
+        }
     }
     
     override func layoutSubviews() {
         super.layoutSubviews()
-        // Khi view thay đổi kích thước (lần đầu hiện lên), nếu chưa zoom thì fit ảnh vào giữa
-        if isResultMode && scrollView.zoomScale == 1.0 {
-            if let lvl = level {
-                setupForResultMode(level: lvl)
-            }
+        if isResultMode && scrollView.zoomScale == 1.0, let lvl = level {
+            setupForResultMode(level: lvl)
         }
-        // Luôn gọi căn giữa để đảm bảo vị trí đúng
         centerContent()
     }
     
-    // MARK: - RENDER
+    // MARK: - RENDER LOGIC
     func render(level: LevelData, currentNumber: Int, redraw: Bool = true) {
         let levelChanged = self.level?.id != level.id
         self.level = level
         
-        // Nếu currentNumber == -2 -> Chế độ Kết quả (Preview)
+        gridLayer.level = level
+        gridLayer.currentNumber = currentNumber
+        colorLayer.level = level
+        
         if currentNumber == -2 {
             isResultMode = true
             setupForResultMode(level: level)
+            gridLayer.isHidden = true
         } else {
             isResultMode = false
-            // Chế độ chơi game: Chỉ reset layout khi đổi level
+            gridLayer.isHidden = false
             if levelChanged {
                 updateContainerSizeForGame(gridW: level.gridWidth, gridH: level.gridHeight)
                 resetView()
@@ -106,367 +117,377 @@ class CanvasView: UIView, UIScrollViewDelegate {
             }
         }
         
-        // Giảm scale vẽ ở mode kết quả để mượt hơn, mode game cần nét hơn
-        drawingLayer.contentScaleFactor = isResultMode ? 4.0 : 7.0
-        drawingLayer.update(level: level, currentNumber: currentNumber, currentZoom: scrollView.zoomScale)
+        // Luôn vẽ với độ phân giải Max Zoom
+        let scale = scrollView.maximumZoomScale
+        gridLayer.contentScaleFactor = scale
+        colorLayer.contentScaleFactor = scale
+        
         
         if redraw {
-            drawingLayer.setNeedsDisplay()
+            gridLayer.setNeedsDisplay()
+            colorLayer.setNeedsDisplay()
         }
     }
     
     func resetView() {
-        scrollView.setZoomScale(1.0, animated: true)
+        let targetScale = scrollView.minimumZoomScale > 0 ? scrollView.minimumZoomScale : 1.0
+        scrollView.setZoomScale(targetScale, animated: true)
     }
     
-    // --- [LOGIC 1] SETUP CHO MÀN KẾT QUẢ (-2) ---
-    // Mục tiêu: Pan/Zoom mượt mà nhưng giới hạn trong khung ảnh (Photo Viewer Style)
-    private func setupForResultMode(level: LevelData) {
-        let gridW = CGFloat(level.gridWidth)
-        let gridH = CGFloat(level.gridHeight)
-        if gridW == 0 || gridH == 0 { return }
+    // --- BATCH PAINTING WITH NEW ANIMATION ---
+    func batchPaintPixels(at indices: [Int], color: UIColor) {
+        guard let currentLevel = level, !indices.isEmpty else { return }
         
-        // Lấy kích thước khung nhìn hiện tại
-        let viewW = self.bounds.width > 0 ? self.bounds.width : 300
-        let viewH = self.bounds.height > 0 ? self.bounds.height : 300
+        let gridW = CGFloat(currentLevel.gridWidth)
+        let pixelW = containerView.bounds.width / gridW
+        let pixelH = containerView.bounds.height / CGFloat(currentLevel.gridHeight)
         
-        let gridRatio = gridW / gridH
-        let viewRatio = viewW / viewH
+        var unionRect: CGRect?
+        var animationCount = 0
+        let maxAnimations = 15
         
-        var finalW: CGFloat
-        var finalH: CGFloat
-        
-        // Tính toán kích thước ảnh sao cho vừa khít (Aspect Fit)
-        if gridRatio > viewRatio {
-            finalW = viewW
-            finalH = viewW / gridRatio
-        } else {
-            finalH = viewH
-            finalW = viewH * gridRatio
+        for index in indices {
+            // 1. Data update
+            colorLayer.tempPaintedIndices.insert(index)
+            
+            // Calculate positions
+            let col = index % currentLevel.gridWidth
+            let row = index / currentLevel.gridWidth
+            
+            let x0 = floor(CGFloat(col) * pixelW)
+            let x1 = floor(CGFloat(col + 1) * pixelW)
+            let y0 = floor(CGFloat(row) * pixelH)
+            let y1 = floor(CGFloat(row + 1) * pixelH)
+            let cellRect = CGRect(x: x0, y: y0, width: x1 - x0, height: y1 - y0)
+            
+            // Union rect for redrawing layers
+            if unionRect == nil { unionRect = cellRect }
+            else { unionRect = unionRect?.union(cellRect) }
+            
+            // 2. [NEW ANIMATION] Dấu chấm sáng chính giữa
+            if animationCount < maxAnimations {
+                if let animView = animationViewPool.popLast() {
+                    
+                    // Kích thước chấm tròn (khoảng 50% ô)
+                    let dotSize = min(cellRect.width, cellRect.height) * 0.5
+                    let dotRect = CGRect(
+                        x: cellRect.midX - dotSize / 2,
+                        y: cellRect.midY - dotSize / 2,
+                        width: dotSize,
+                        height: dotSize
+                    )
+                    
+                    // Cấu hình View
+                    animView.frame = dotRect
+                    animView.backgroundColor = .white // Tâm màu trắng sáng
+                    animView.layer.cornerRadius = dotSize / 2
+                    
+                    // Viền sáng (màu của bút tô)
+                    animView.layer.borderWidth = dotSize * 0.15 // Viền dày vừa phải
+                    animView.layer.borderColor = color.withAlphaComponent(0.9).cgColor
+                    
+                    // Hiệu ứng phát sáng (Glow)
+                    animView.layer.shadowColor = color.cgColor
+                    animView.layer.shadowRadius = dotSize * 0.3
+                    animView.layer.shadowOpacity = 0.6
+                    animView.layer.shadowOffset = .zero
+                    
+                    // Trạng thái ban đầu (Nhỏ và trong suốt)
+                    animView.transform = CGAffineTransform(scaleX: 0.2, y: 0.2)
+                    animView.alpha = 0.0
+                    containerView.addSubview(animView)
+                    
+                    // Chuỗi hiệu ứng: Hiện nhanh -> Mờ dần đi
+                    UIView.animate(withDuration: 0.15, delay: 0, options: [.curveEaseOut], animations: {
+                        animView.transform = .identity // Phóng to về kích thước thật
+                        animView.alpha = 1.0
+                    }) { _ in
+                        UIView.animate(withDuration: 0.25, delay: 0.05, options: [.curveEaseIn], animations: {
+                            animView.transform = CGAffineTransform(scaleX: 0.5, y: 0.5) // Thu nhỏ lại
+                            animView.alpha = 0.0 // Mờ dần
+                        }) { [weak self] _ in
+                            // Reset style trước khi trả về kho
+                            animView.layer.shadowOpacity = 0
+                            animView.layer.borderWidth = 0
+                            animView.removeFromSuperview()
+                            self?.animationViewPool.append(animView)
+                        }
+                    }
+                    animationCount += 1
+                }
+            }
         }
         
-        // 1. Đặt kích thước nội dung bằng đúng kích thước ảnh hiển thị
-        containerView.frame = CGRect(x: 0, y: 0, width: finalW, height: finalH)
-        scrollView.contentSize = containerView.frame.size
-        
-        // 2. Xóa Padding ảo (để giới hạn vùng kéo)
-        scrollView.contentInset = .zero
-        
-        // 3. Cấu hình Zoom
-        scrollView.minimumZoomScale = 1.0
-        scrollView.maximumZoomScale = 5.0
-        scrollView.zoomScale = 1.0
-        
-        // 4. Bật Scroll
-        scrollView.isScrollEnabled = true
-        
-        // 5. Căn giữa
-        centerContent()
+        // 3. Redraw Layers
+        if let rect = unionRect {
+            colorLayer.setNeedsDisplay(rect)
+            gridLayer.setNeedsDisplay(rect)
+        }
     }
     
-    // --- [LOGIC 2] SETUP CHO GAME MODE ---
-    // Mục tiêu: Padding cực lớn để kéo hình đi khắp nơi (Game Style)
+    func updatePixels(at indices: [Int], with newLevelData: LevelData) {
+        self.level = newLevelData; colorLayer.level = newLevelData; gridLayer.level = newLevelData
+        for index in indices { colorLayer.tempPaintedIndices.remove(index) }
+        if indices.isEmpty { return }
+        
+        let gridW = CGFloat(newLevelData.gridWidth)
+        let pixelW = containerView.bounds.width / gridW
+        let pixelH = containerView.bounds.height / CGFloat(newLevelData.gridHeight)
+        
+        var unionRect: CGRect?
+        for index in indices {
+            let col = index % newLevelData.gridWidth; let row = index / newLevelData.gridWidth
+            let x0 = floor(CGFloat(col) * pixelW); let x1 = floor(CGFloat(col + 1) * pixelW)
+            let y0 = floor(CGFloat(row) * pixelH); let y1 = floor(CGFloat(row + 1) * pixelH)
+            let rect = CGRect(x: x0, y: y0, width: x1 - x0, height: y1 - y0)
+            if unionRect == nil { unionRect = rect } else { unionRect = unionRect?.union(rect) }
+        }
+        
+        if let rect = unionRect {
+            colorLayer.setNeedsDisplay(rect)
+            gridLayer.setNeedsDisplay(rect)
+        }
+    }
+    
+    // ... Helpers (Copy from previous)
+    private func setupForResultMode(level: LevelData) {
+        let gridW = CGFloat(level.gridWidth); let gridH = CGFloat(level.gridHeight)
+        if gridW == 0 || gridH == 0 { return }
+        let viewW = bounds.width > 0 ? bounds.width : 300; let viewH = bounds.height > 0 ? bounds.height : 300
+        let gridRatio = gridW / gridH; let viewRatio = viewW / viewH
+        var finalW: CGFloat; var finalH: CGFloat
+        if gridRatio > viewRatio { finalW = viewW; finalH = viewW / gridRatio }
+        else { finalH = viewH; finalW = viewH * gridRatio }
+        containerView.frame = CGRect(x: 0, y: 0, width: finalW, height: finalH)
+        scrollView.contentSize = containerView.frame.size; scrollView.contentInset = .zero
+        scrollView.minimumZoomScale = 1.0; scrollView.maximumZoomScale = 5.0; scrollView.zoomScale = 1.0; scrollView.isScrollEnabled = true
+        centerContent()
+    }
     private func updateContainerSizeForGame(gridW: Int, gridH: Int) {
         guard gridW > 0, gridH > 0 else { return }
-        let canvasW = self.bounds.width > 0 ? self.bounds.width : 300
-        let canvasH = self.bounds.height > 0 ? self.bounds.height : 300
-        let gridRatio = CGFloat(gridW) / CGFloat(gridH)
-        let canvasRatio = canvasW / canvasH
+        let canvasW = bounds.width > 0 ? bounds.width : 300; let canvasH = bounds.height > 0 ? bounds.height : 300
+        let gridRatio = CGFloat(gridW) / CGFloat(gridH); let canvasRatio = canvasW / canvasH
         var finalW: CGFloat; var finalH: CGFloat
         if gridRatio > canvasRatio { finalW = canvasW; finalH = canvasW / gridRatio }
         else { finalH = canvasH; finalW = canvasH * gridRatio }
-        
         containerView.frame = CGRect(x: 0, y: 0, width: finalW, height: finalH)
         scrollView.contentSize = containerView.frame.size
-        
-        let paddingX = canvasW * 0.5
-        let paddingY = canvasH * 0.5
+        let paddingX = canvasW * 0.5; let paddingY = canvasH * 0.5
         scrollView.contentInset = UIEdgeInsets(top: paddingY, left: paddingX, bottom: paddingY, right: paddingX)
-        
-        // Tự động đưa về giữa màn hình bằng offset (Logic câu trước)
-        let targetOffsetX = (finalW - canvasW) / 2.0
-        let targetOffsetY = (finalH - canvasH) / 2.0
+        let targetOffsetX = (finalW - canvasW) / 2.0; let targetOffsetY = (finalH - canvasH) / 2.0
         scrollView.contentOffset = CGPoint(x: targetOffsetX, y: targetOffsetY)
     }
-    
-    // MARK: - CENTER CONTENT (Logic Căn Giữa)
     private func centerContent() {
         if isResultMode {
-            // [RESULT MODE]
-            // Dùng kỹ thuật thay đổi 'center' của containerView
-            // Đây là cách chuẩn để zoom ảnh mà vẫn giữ ảnh ở giữa khi zoom out
-            let boundsSize = scrollView.bounds.size
-            var frameToCenter = containerView.frame
-            
-            var offsetX: CGFloat = 0
-            var offsetY: CGFloat = 0
-            
-            // Nếu ảnh nhỏ hơn màn hình -> Tính offset để đẩy vào giữa
-            if frameToCenter.size.width < boundsSize.width {
-                offsetX = (boundsSize.width - frameToCenter.size.width) / 2.0
-            }
-            if frameToCenter.size.height < boundsSize.height {
-                offsetY = (boundsSize.height - frameToCenter.size.height) / 2.0
-            }
-            
-            // Set tâm mới
-            containerView.center = CGPoint(
-                x: scrollView.contentSize.width / 2.0 + offsetX,
-                y: scrollView.contentSize.height / 2.0 + offsetY
-            )
-            
+            let boundsSize = scrollView.bounds.size; let frameToCenter = containerView.frame
+            var offsetX: CGFloat = 0; var offsetY: CGFloat = 0
+            if frameToCenter.size.width < boundsSize.width { offsetX = (boundsSize.width - frameToCenter.size.width) / 2.0 }
+            if frameToCenter.size.height < boundsSize.height { offsetY = (boundsSize.height - frameToCenter.size.height) / 2.0 }
+            containerView.center = CGPoint(x: scrollView.contentSize.width / 2.0 + offsetX, y: scrollView.contentSize.height / 2.0 + offsetY)
         } else {
-            // [GAME MODE] Giữ nguyên logic cũ dùng Inset
             let boundsSize = scrollView.bounds.size
             scrollView.contentInset.top = max((boundsSize.height - scrollView.contentSize.height) * 0.5, 0)
-            if scrollView.contentInset.top < boundsSize.height * 0.5 {
-                let defaultPadding = boundsSize.height * 0.5
-                scrollView.contentInset.top = defaultPadding
-                scrollView.contentInset.bottom = defaultPadding
-            }
+            if scrollView.contentInset.top < boundsSize.height * 0.5 { let def = boundsSize.height * 0.5; scrollView.contentInset.top = def; scrollView.contentInset.bottom = def }
             scrollView.contentInset.left = max((boundsSize.width - scrollView.contentSize.width) * 0.5, 0)
-            if scrollView.contentInset.left < boundsSize.width * 0.5 {
-                let defaultPadding = boundsSize.width * 0.5
-                scrollView.contentInset.left = defaultPadding
-                scrollView.contentInset.right = defaultPadding
-            }
+            if scrollView.contentInset.left < boundsSize.width * 0.5 { let def = boundsSize.width * 0.5; scrollView.contentInset.left = def; scrollView.contentInset.right = def }
         }
     }
-    
-    // MARK: - SCROLL VIEW DELEGATE
-    func viewForZooming(in scrollView: UIScrollView) -> UIView? {
-        return containerView
-    }
-    
+    func viewForZooming(in scrollView: UIScrollView) -> UIView? { return containerView }
     func scrollViewDidZoom(_ scrollView: UIScrollView) {
-        centerContent() // Căn giữa liên tục khi đang zoom
+        centerContent()
         
-        // Tối ưu việc vẽ lại khi zoom (chỉ vẽ lại ở các mốc zoom nhất định)
-        let currentZoom = scrollView.zoomScale
-        var newStep = 0
-        if currentZoom >= 8.5 { newStep = 3 }
-        else if currentZoom >= 4.0 { newStep = 2 }
-        else if currentZoom >= 1.2 { newStep = 1 }
-        else { newStep = 0 }
-        
-        if newStep != lastZoomStep {
-            lastZoomStep = newStep
-            drawingLayer.updateZoom(currentZoom)
-            drawingLayer.setNeedsDisplay()
-        }
     }
-    
-    // ... (Giữ nguyên các hàm Helper: updatePixels, getPixelIndex, zoomToPixel...) ...
-    // Bạn copy lại các hàm helper này từ code cũ nhé
-    func updatePixels(at indices: [Int], with newLevelData: LevelData) {
-        // 1. Cập nhật dữ liệu mới nhất cho Canvas và lớp vẽ
-        self.level = newLevelData
-        drawingLayer.level = newLevelData
-        
-        // 2. Tính toán và vẽ lại các ô bị thay đổi
-        let gridW = CGFloat(newLevelData.gridWidth)
-        let viewW = containerView.bounds.width
-        let viewH = containerView.bounds.height
-        
-        // Tránh chia cho 0
-        if gridW == 0 { return }
-        
-        let pixelW = viewW / gridW
-        let pixelH = viewH / CGFloat(newLevelData.gridHeight)
-        
-        for index in indices {
-            let col = index % newLevelData.gridWidth
-            let row = index / newLevelData.gridWidth
-            
-            // Tính toán khung hình chữ nhật của ô cần vẽ lại
-            let rect = CGRect(
-                x: CGFloat(col) * pixelW,
-                y: CGFloat(row) * pixelH,
-                width: pixelW,
-                height: pixelH
-            ).insetBy(dx: -0.5, dy: -0.5) // Mở rộng biên xíu để tránh viền trắng
-            
-            // Chỉ yêu cầu vẽ lại đúng vùng này
-            drawingLayer.setNeedsDisplay(rect)
-        }
-    }
-    
     func getPixelIndex(at locationInView: CGPoint) -> Int? {
         guard let level = level else { return nil }
-        let locationInContainer = self.convert(locationInView, to: containerView)
-        let pixelW = containerView.bounds.width / CGFloat(level.gridWidth)
-        let pixelH = containerView.bounds.height / CGFloat(level.gridHeight)
-        let col = Int(locationInContainer.x / pixelW)
-        let row = Int(locationInContainer.y / pixelH)
-        if col >= 0 && col < level.gridWidth && row >= 0 && row < level.gridHeight {
-            return row * level.gridWidth + col
-        }
-        return nil
-    }
-    
-    func getGridPosition(at locationInView: CGPoint) -> (col: Int, row: Int)? {
-        guard let level = level else { return nil }
-        let locationInContainer = self.convert(locationInView, to: containerView)
+        let loc = convert(locationInView, to: containerView)
         let pixelW = containerView.bounds.width / CGFloat(level.gridWidth)
         let pixelH = containerView.bounds.height / CGFloat(level.gridHeight)
         if pixelW <= 0 || pixelH <= 0 { return nil }
-        let col = Int(locationInContainer.x / pixelW)
-        let row = Int(locationInContainer.y / pixelH)
+        let col = Int(loc.x / pixelW); let row = Int(loc.y / pixelH)
+        if col >= 0 && col < level.gridWidth && row >= 0 && row < level.gridHeight { return row * level.gridWidth + col }
+        return nil
+    }
+    func getGridPosition(at locationInView: CGPoint) -> (col: Int, row: Int)? {
+        guard let level = level else { return nil }
+        let loc = convert(locationInView, to: containerView)
+        let pixelW = containerView.bounds.width / CGFloat(level.gridWidth)
+        let pixelH = containerView.bounds.height / CGFloat(level.gridHeight)
+        if pixelW <= 0 || pixelH <= 0 { return nil }
+        let col = Int(loc.x / pixelW); let row = Int(loc.y / pixelH)
         if col >= 0 && col < level.gridWidth && row >= 0 && row < level.gridHeight { return (col, row) }
         return nil
     }
-    
-    func getIndex(col: Int, row: Int) -> Int {
-        guard let level = level else { return -1 }
-        return row * level.gridWidth + col
-    }
-    
+    func getIndex(col: Int, row: Int) -> Int { guard let level = level else { return -1 }; return row * level.gridWidth + col }
     func zoomToPixel(at index: Int) {
         guard let level = level, index < level.pixels.count else { return }
         let pixel = level.pixels[index]
         let targetScale: CGFloat = max(scrollView.zoomScale, 4.0)
-        let zoomWidth = scrollView.bounds.width / targetScale
-        let zoomHeight = scrollView.bounds.height / targetScale
-        let contentW = containerView.bounds.width
-        let contentH = containerView.bounds.height
-        let pixelW = contentW / CGFloat(level.gridWidth)
-        let pixelH = contentH / CGFloat(level.gridHeight)
-        let pixelCenterX = (CGFloat(pixel.x) * pixelW) + (pixelW / 2)
-        let pixelCenterY = (CGFloat(pixel.y) * pixelH) + (pixelH / 2)
-        let zoomRect = CGRect(x: pixelCenterX - (zoomWidth / 2), y: pixelCenterY - (zoomHeight / 2), width: zoomWidth, height: zoomHeight)
-        scrollView.zoom(to: zoomRect, animated: true)
+        let zoomWidth = scrollView.bounds.width / targetScale; let zoomHeight = scrollView.bounds.height / targetScale
+        let contentW = containerView.bounds.width; let contentH = containerView.bounds.height
+        let pixelW = contentW / CGFloat(level.gridWidth); let pixelH = contentH / CGFloat(level.gridHeight)
+        let cx = (CGFloat(pixel.x) * pixelW) + (pixelW / 2); let cy = (CGFloat(pixel.y) * pixelH) + (pixelH / 2)
+        scrollView.zoom(to: CGRect(x: cx - zoomWidth/2, y: cy - zoomHeight/2, width: zoomWidth, height: zoomHeight), animated: true)
     }
     
-    // Class NumberOverlayView
-    class NumberOverlayView: UIView {
+    // MARK: - VIEW LỚP 1: LƯỚI & SỐ & HINT (FIXED VISUALS)
+    class GridNumberView: UIView {
         var level: LevelData?
         var currentNumber: Int = 0
-        var currentZoom: CGFloat = 1.0
+        
+        private var cachedAttributes: [NSAttributedString.Key: Any]?
+        private var cachedActiveAttributes: [NSAttributedString.Key: Any]?
+        private var lastFontSize: CGFloat = 0
+        private var cachedFontLineHeight: CGFloat = 0
         
         override init(frame: CGRect) {
-            super.init(frame: frame)
-            self.backgroundColor = .clear
-            self.isUserInteractionEnabled = false
-            self.contentMode = .redraw
+            super.init(frame: frame); self.backgroundColor = .clear; self.isUserInteractionEnabled = false; self.contentMode = .redraw
         }
-        
         required init?(coder: NSCoder) { fatalError() }
-        
-        func update(level: LevelData, currentNumber: Int, currentZoom: CGFloat) {
-            self.level = level
-            self.currentNumber = currentNumber
-            self.currentZoom = currentZoom
-        }
-        
-        func updateZoom(_ zoom: CGFloat) {
-            self.currentZoom = zoom
-        }
         
         override func draw(_ rect: CGRect) {
             guard let level = level, let context = UIGraphicsGetCurrentContext() else { return }
-            
-            let gridW = CGFloat(level.gridWidth)
-            let gridH = CGFloat(level.gridHeight)
+            let gridW = CGFloat(level.gridWidth); let gridH = CGFloat(level.gridHeight)
             if gridW == 0 || gridH == 0 { return }
             
-            let totalW = self.bounds.width
-            let totalH = self.bounds.height
-            let pixelW = totalW / gridW
-            let pixelH = totalH / gridH
+            let totalW = bounds.width; let totalH = bounds.height
+            let pixelW = totalW / gridW; let pixelH = totalH / gridH
+            let shouldDrawNumber = true
             
-            let shouldDrawNumber = currentZoom >= 1.2
+            let startCol = Int(floor(rect.minX / pixelW)); let endCol = Int(ceil(rect.maxX / pixelW))
+            let startRow = Int(floor(rect.minY / pixelH)); let endRow = Int(ceil(rect.maxY / pixelH))
+            let minCol = max(0, startCol); let maxCol = min(level.gridWidth, endCol)
+            let minRow = max(0, startRow); let maxRow = min(level.gridHeight, endRow)
             
-            let startCol = Int(floor(rect.minX / pixelW))
-            let endCol   = Int(ceil(rect.maxX / pixelW))
-            let startRow = Int(floor(rect.minY / pixelH))
-            let endRow   = Int(ceil(rect.maxY / pixelH))
+            // Cache Font - [Change 1: SỐ NHỎ LẠI]
+            let fontSize = min(pixelW, pixelH) * 0.5 // Giảm từ 0.7 xuống 0.5
+            if abs(fontSize - lastFontSize) > 0.5 || cachedAttributes == nil {
+                lastFontSize = fontSize
+                let font = UIFont.boldSystemFont(ofSize: fontSize)
+                cachedFontLineHeight = font.lineHeight
+                let style = NSMutableParagraphStyle(); style.alignment = .center
+                cachedActiveAttributes = [.font: font, .paragraphStyle: style, .foregroundColor: UIColor.black]
+                cachedAttributes = [.font: font, .paragraphStyle: style, .foregroundColor: UIColor.black.withAlphaComponent(0.6)]
+            }
             
-            let minCol = max(0, startCol)
-            let maxCol = min(level.gridWidth, endCol)
-            let minRow = max(0, startRow)
-            let maxRow = min(level.gridHeight, endRow)
+            context.setShouldAntialias(false)
+            context.setLineWidth(0.3)
             
-            let fontSize = min(pixelW, pixelH) * 0.7
-            let font = UIFont.boldSystemFont(ofSize: fontSize)
-            let paragraphStyle = NSMutableParagraphStyle()
-            paragraphStyle.alignment = .center
-            
-            let activeAttributes: [NSAttributedString.Key: Any] = [
-                .font: UIFont.boldSystemFont(ofSize: fontSize), .paragraphStyle: paragraphStyle, .foregroundColor: UIColor.black
-            ]
-            let textAttributes: [NSAttributedString.Key: Any] = [
-                .font: font, .paragraphStyle: paragraphStyle, .foregroundColor: UIColor.black.withAlphaComponent(0.6)
-            ]
-            
-            let gridColor = UIColor.systemGray.cgColor
-            let lineWidth: CGFloat = 0.5 / currentZoom
+            // [Change 2: VIỀN MỜ LẠI]
+            // Sử dụng systemGray5 (sáng hơn Gray4) để làm viền mờ hơn
+            let gridColor = UIColor.systemGray5.withAlphaComponent(0.05).cgColor
+            context.setStrokeColor(gridColor)
             
             for r in minRow..<maxRow {
                 for c in minCol..<maxCol {
                     let index = r * level.gridWidth + c
                     if index >= level.pixels.count { continue }
                     let pixel = level.pixels[index]
+                    
                     if pixel.number == 0 { continue }
+                    if pixel.isColored { continue }
                     
-                    let x = CGFloat(c) * pixelW
-                    let y = CGFloat(r) * pixelH
-                    let pixelRect = CGRect(x: x, y: y, width: pixelW, height: pixelH)
+                    // Exact Tiling
+                    let x0 = floor(CGFloat(c) * pixelW)
+                    let x1 = floor(CGFloat(c + 1) * pixelW)
+                    let y0 = floor(CGFloat(r) * pixelH)
+                    let y1 = floor(CGFloat(r + 1) * pixelH)
+                    let pixelRect = CGRect(x: x0, y: y0, width: x1 - x0, height: y1 - y0)
                     
+                    // 1. LÓT NỀN TRẮNG
+                    UIColor.white.setFill()
+                    context.fill(pixelRect)
+                    
+                    // 2. MÀU GỢI Ý (HINT)
                     let colorIndex = pixel.number - 1
-                    if colorIndex < 0 || colorIndex >= level.palette.count { continue }
-                    let uiColor = level.palette[colorIndex]
-                    
-                    if currentNumber == -1 {
-                        uiColor.setFill()
+                    if colorIndex >= 0 && colorIndex < level.palette.count {
+                        let uiColor = level.palette[colorIndex]
+                        
+                        // Alpha: 0.4 (Cùng số) | 0.1 (Khác số)
+                        let alpha = (pixel.number == currentNumber) ? 0.6 : 0.3
+                        
+                        uiColor.withAlphaComponent(alpha).setFill()
                         context.fill(pixelRect)
-                    } else {
-                        if pixel.isColored {
-                            uiColor.setFill()
+                        
+                        // Highlight bổ sung
+                        if pixel.number == currentNumber {
+                            UIColor.black.withAlphaComponent(0.05).setFill()
                             context.fill(pixelRect)
-                            if currentNumber != -2 {
-                                context.setStrokeColor(uiColor.cgColor)
-                                context.setLineWidth(lineWidth * 1.5)
-                                context.stroke(pixelRect)
-                            }
-                        } else {
-                            if currentNumber == -2 { continue }
-                            
-                            UIColor.white.setFill()
-                            context.fill(pixelRect)
-                            context.setStrokeColor(gridColor)
-                            context.setLineWidth(lineWidth)
-                            context.stroke(pixelRect)
-                            
-                            if pixel.number == currentNumber {
-                                UIColor.systemGray3.setFill()
-                                context.fill(pixelRect)
-                                uiColor.withAlphaComponent(0.5).setFill()
-                                context.fill(pixelRect)
-                                if shouldDrawNumber {
-                                    drawNumber(pixel.number, at: pixelRect, fontHeight: font.lineHeight, attrs: activeAttributes)
-                                }
-                            } else {
-                                uiColor.withAlphaComponent(0.15).setFill()
-                                context.fill(pixelRect)
-                                if shouldDrawNumber {
-                                    drawNumber(pixel.number, at: pixelRect, fontHeight: font.lineHeight, attrs: textAttributes)
-                                }
-                            }
+                        }
+                    }
+                    
+                    // 3. VẼ LƯỚI
+                    context.stroke(pixelRect)
+                    
+                    // 4. VẼ SỐ
+                    if shouldDrawNumber {
+                        let attrs = (pixel.number == currentNumber) ? cachedActiveAttributes : cachedAttributes
+                        if let attributes = attrs {
+                            drawNumber(pixel.number, at: pixelRect, fontHeight: cachedFontLineHeight, attrs: attributes)
                         }
                     }
                 }
             }
         }
         
+        @inline(__always)
         private func drawNumber(_ number: Int, at rect: CGRect, fontHeight: CGFloat, attrs: [NSAttributedString.Key: Any]) {
-            let numberString = "\(number)" as NSString
-            let textRect = CGRect(
-                x: rect.origin.x,
-                y: rect.origin.y + (rect.height - fontHeight) / 2,
-                width: rect.width,
-                height: rect.height
-            )
-            numberString.draw(in: textRect, withAttributes: attrs)
+            let textRect = CGRect(x: rect.origin.x, y: rect.origin.y + (rect.height - fontHeight) / 2, width: rect.width, height: rect.height)
+            ("\(number)" as NSString).draw(in: textRect, withAttributes: attrs)
+        }
+    }
+    
+    // MARK: - VIEW LỚP 2: MÀU SẮC (ColoringView)
+    class ColoringView: UIView {
+        var level: LevelData?
+        var tempPaintedIndices: Set<Int> = []
+        
+        override init(frame: CGRect) {
+            super.init(frame: frame); self.backgroundColor = .clear; self.isUserInteractionEnabled = false; self.contentMode = .redraw
+        }
+        required init?(coder: NSCoder) { fatalError() }
+        
+        override func draw(_ rect: CGRect) {
+            guard let level = level, let context = UIGraphicsGetCurrentContext() else { return }
+            let gridW = CGFloat(level.gridWidth); let gridH = CGFloat(level.gridHeight)
+            if gridW == 0 || gridH == 0 { return }
+            
+            let totalW = bounds.width; let totalH = bounds.height
+            let pixelW = totalW / gridW; let pixelH = totalH / gridH
+            
+            let startCol = Int(floor(rect.minX / pixelW)); let endCol = Int(ceil(rect.maxX / pixelW))
+            let startRow = Int(floor(rect.minY / pixelH)); let endRow = Int(ceil(rect.maxY / pixelH))
+            let minCol = max(0, startCol); let maxCol = min(level.gridWidth, endCol)
+            let minRow = max(0, startRow); let maxRow = min(level.gridHeight, endRow)
+            
+            context.setShouldAntialias(false)
+            
+            for r in minRow..<maxRow {
+                for c in minCol..<maxCol {
+                    let index = r * level.gridWidth + c
+                    if index >= level.pixels.count { continue }
+                    
+                    let isColored = level.pixels[index].isColored || tempPaintedIndices.contains(index)
+                    
+                    if isColored {
+                        let pixel = level.pixels[index]
+                        let colorIndex = pixel.number - 1
+                        
+                        if colorIndex >= 0 && colorIndex < level.palette.count {
+                            let uiColor = level.palette[colorIndex]
+                            
+                            // Exact Tiling
+                            let x0 = floor(CGFloat(c) * pixelW)
+                            let x1 = floor(CGFloat(c + 1) * pixelW)
+                            let y0 = floor(CGFloat(r) * pixelH)
+                            let y1 = floor(CGFloat(r + 1) * pixelH)
+                            let pixelRect = CGRect(x: x0, y: y0, width: x1 - x0, height: y1 - y0)
+                            
+                            uiColor.setFill()
+                            context.fill(pixelRect)
+                        }
+                    }
+                }
+            }
         }
     }
 }

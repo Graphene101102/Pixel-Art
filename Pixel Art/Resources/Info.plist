@@ -2,12 +2,13 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<key>NSPhotoLibraryUsageDescription</key>
-	<string>The app needs access permissions to select sample images from the library.</string>
-	<key>NSPhotoLibraryAddUsageDescription</key>
-	<string>The app needs permission to save your Pixel Art artwork to your photo library.</string>
-	<key>NSCameraUsageDescription</key>
-	<string>The app needs access to your camera so you can take photos and create Pixel Art.</string>
+	<key>UIAppFonts</key>
+	<array>
+		<string>PixelifySans-Bold.ttf</string>
+		<string>PixelifySans-Medium.ttf</string>
+		<string>PixelifySans-Regular.ttf</string>
+		<string>PixelifySans-SemiBold.ttf</string>
+	</array>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

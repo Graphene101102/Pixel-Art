@@ -8,13 +8,17 @@ enum LevelRenderMode {
 
 class LevelListCell: UICollectionViewCell {
     
+    // MARK: - UI Elements
     private let containerView: UIView = {
         let v = UIView()
         v.backgroundColor = .white
-        v.layer.cornerRadius = 16
+        v.layer.borderWidth = 2
+        v.layer.borderColor = UIColor(hex: "#338CFF").cgColor
+        v.layer.cornerRadius = 21
+        
         // Shadow nhẹ
-        v.layer.shadowColor = UIColor.black.cgColor
-        v.layer.shadowOpacity = 0.1
+        v.layer.shadowColor = UIColor(hex: "#000000").cgColor
+        v.layer.shadowOpacity = 0.25
         v.layer.shadowOffset = CGSize(width: 0, height: 4)
         v.layer.shadowRadius = 6
         return v
@@ -23,25 +27,13 @@ class LevelListCell: UICollectionViewCell {
     // View vẽ Pixel
     private let previewView = LevelPreviewView()
     
-    // Icon khóa (Chỉ hiện ở Home nếu bị khóa)
-    private let lockIcon: UIImageView = {
-        let iv = UIImageView(image: UIImage(systemName: "lock.fill"))
-        iv.tintColor = .white
-        iv.backgroundColor = UIColor.black.withAlphaComponent(0.6)
-        iv.contentMode = .center
-        iv.layer.cornerRadius = 15
-        iv.clipsToBounds = true
-        iv.isHidden = true
-        return iv
-    }()
-    
-    // [MỚI] Nhãn NEW (Thay thế cho Checkmark)
+    // Nhãn NEW (Chỉ hiện nếu ngày tạo còn mới)
     private let newLabel: UILabel = {
         let l = UILabel()
         l.text = "NEW"
         l.font = .systemFont(ofSize: 10, weight: .bold)
         l.textColor = .white
-        l.backgroundColor = UIColor.red
+        l.backgroundColor = UIColor(hex: "#338CFF")
         l.textAlignment = .center
         l.layer.cornerRadius = 6
         l.clipsToBounds = true
@@ -58,15 +50,18 @@ class LevelListCell: UICollectionViewCell {
     
     private func setupUI() {
         contentView.backgroundColor = .clear
+        
         contentView.addSubview(containerView)
         containerView.addSubview(previewView)
-        containerView.addSubview(lockIcon)
-        containerView.addSubview(newLabel) // Thêm label NEW
+        // [ĐÃ XÓA] lockIcon
+        containerView.addSubview(newLabel)
         
         containerView.translatesAutoresizingMaskIntoConstraints = false
         previewView.translatesAutoresizingMaskIntoConstraints = false
-        lockIcon.translatesAutoresizingMaskIntoConstraints = false
         newLabel.translatesAutoresizingMaskIntoConstraints = false
+        
+        previewView.layer.cornerRadius = 19
+        previewView.clipsToBounds = true
         
         NSLayoutConstraint.activate([
             // Container hình vuông
@@ -76,18 +71,12 @@ class LevelListCell: UICollectionViewCell {
             containerView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
             
             // Preview nằm gọn bên trong
-            previewView.topAnchor.constraint(equalTo: containerView.topAnchor, constant: 8),
-            previewView.bottomAnchor.constraint(equalTo: containerView.bottomAnchor, constant: -8),
-            previewView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: 8),
-            previewView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -8),
+            previewView.topAnchor.constraint(equalTo: containerView.topAnchor, constant: 0),
+            previewView.bottomAnchor.constraint(equalTo: containerView.bottomAnchor, constant: 0),
+            previewView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: 0),
+            previewView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: 0),
             
-            // Lock icon giữa hình
-            lockIcon.centerXAnchor.constraint(equalTo: containerView.centerXAnchor),
-            lockIcon.centerYAnchor.constraint(equalTo: containerView.centerYAnchor),
-            lockIcon.widthAnchor.constraint(equalToConstant: 30),
-            lockIcon.heightAnchor.constraint(equalToConstant: 30),
-            
-            // [MỚI] New Label: Góc trên phải (hoặc trái tùy bạn, ở đây để góc trên phải cho nổi)
+            // New Label: Góc trên phải
             newLabel.topAnchor.constraint(equalTo: containerView.topAnchor, constant: 8),
             newLabel.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -8),
             newLabel.widthAnchor.constraint(equalToConstant: 36),
@@ -104,30 +93,28 @@ class LevelListCell: UICollectionViewCell {
         if mode == .fullPreview {
             // --- HOME VIEW CONFIG ---
             
-            // 1. Xử lý Lock
-            lockIcon.isHidden = !level.isLocked
-            previewView.alpha = level.isLocked ? 0.3 : 1.0
+            // 1. Luôn hiển thị rõ (không làm mờ nữa vì bỏ khóa)
+            previewView.alpha = 1.0
             
-            // 2. Xử lý nhãn NEW
-            // Hiện NEW nếu: Không bị khóa VÀ Chưa chơi (timeSpent == 0)
-            if !level.isLocked && level.timeSpent == 0 {
-                newLabel.isHidden = false
-            } else {
-                newLabel.isHidden = true
-            }
+            // 2. Logic hiển thị NEW theo ngày tạo
+            let timeInterval = Date().timeIntervalSince(level.createdAt)
+                        let isRecent = timeInterval < (3 * 24 * 60 * 60)
+                        
+                        if isRecent {
+                            newLabel.isHidden = false
+                        } else {
+                            newLabel.isHidden = true
+                        }
             
         } else {
             // --- GALLERY VIEW CONFIG ---
-            
-            // Luôn ẩn Lock và New ở Gallery
-            lockIcon.isHidden = true
             newLabel.isHidden = true
             previewView.alpha = 1.0
         }
     }
 }
 
-// MARK: - Class Vẽ Pixel (Giữ nguyên logic tô đậm/nhạt)
+// MARK: - Class Vẽ Pixel (Phải đặt ở đây để hết lỗi Scope)
 class LevelPreviewView: UIView {
     var level: LevelData?
     var renderMode: LevelRenderMode = .fullPreview

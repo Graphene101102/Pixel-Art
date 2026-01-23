@@ -4,10 +4,9 @@ import PhotosUI
 // MARK: - Custom Cell cho thanh chọn Background
 class BackgroundOptionCell: UICollectionViewCell {
     
-    // Biến cờ để biết cell này có cần viền mỏng khi không được chọn hay không
-    // (Dùng cho nút Upload và nút Màu Trắng)
-    private var isBordered: Bool = false
+    // MARK: - UI Elements
     
+    // 1. Ảnh nền (Cho các cell màu/ảnh)
     private let imageView: UIImageView = {
         let iv = UIImageView()
         iv.contentMode = .scaleAspectFill
@@ -16,6 +15,26 @@ class BackgroundOptionCell: UICollectionViewCell {
         return iv
     }()
     
+    // 2. Container riêng cho nút Upload (Cái ô vuông nhỏ ở giữa)
+    private let uploadInnerContainer: UIView = {
+        let v = UIView()
+        v.backgroundColor = .white
+        v.layer.cornerRadius = 12 // Bo góc vuông nhỏ
+        
+        // Viền xanh dương nhạt cho ô vuông
+        v.layer.borderWidth = 1.5
+        v.layer.borderColor = UIColor(hex: "#3475CB").cgColor
+        
+        // Đổ bóng cho ô vuông này (như ảnh)
+        v.layer.shadowColor = UIColor(hex: "#3475CB").withAlphaComponent(0.5).cgColor
+        v.layer.shadowOpacity = 0.3
+        v.layer.shadowOffset = CGSize(width: 2, height: 4)
+        v.layer.shadowRadius = 4
+        
+        return v
+    }()
+    
+    // 3. Icon (Dùng chung cho cả Upload và nút White, nhưng vị trí khác nhau)
     private let iconView: UIImageView = {
         let iv = UIImageView()
         iv.contentMode = .scaleAspectFit
@@ -23,90 +42,147 @@ class BackgroundOptionCell: UICollectionViewCell {
         return iv
     }()
     
-    override var isSelected: Bool {
-        didSet {
-            updateBorder()
-        }
-    }
+    // Biến cờ
+    private var isUploadType: Bool = false
+    private var isWhiteType: Bool = false
     
+    // MARK: - Init
     override init(frame: CGRect) {
         super.init(frame: frame)
+        setupUI()
+    }
+    
+    required init?(coder: NSCoder) { fatalError() }
+    
+    private func setupUI() {
+        // Cell gốc bo góc
+        contentView.layer.cornerRadius = 12
+        contentView.clipsToBounds = true
+        layer.cornerRadius = 12
+        layer.masksToBounds = false // Để hiện shadow của cell chính (nếu cần khi selected)
+        
+        // Add Subviews
         contentView.addSubview(imageView)
+        contentView.addSubview(uploadInnerContainer)
+        
+        // Icon nằm trong uploadContainer (nếu là upload) hoặc nằm đè lên image (nếu là white)
+        // Để linh hoạt, ta add icon vào contentView, sau đó chỉnh constraint
         contentView.addSubview(iconView)
+        
         imageView.translatesAutoresizingMaskIntoConstraints = false
+        uploadInnerContainer.translatesAutoresizingMaskIntoConstraints = false
         iconView.translatesAutoresizingMaskIntoConstraints = false
         
+        // Constraints cố định
         NSLayoutConstraint.activate([
+            // ImageView full cell
             imageView.topAnchor.constraint(equalTo: contentView.topAnchor),
             imageView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
             imageView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
             imageView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
             
-            iconView.centerXAnchor.constraint(equalTo: contentView.centerXAnchor),
-            iconView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            iconView.widthAnchor.constraint(equalToConstant: 24),
-            iconView.heightAnchor.constraint(equalToConstant: 24)
+            // Upload Inner Container (Ô vuông nhỏ ở giữa)
+            // Kích thước khoảng 60% cell
+            uploadInnerContainer.centerXAnchor.constraint(equalTo: contentView.centerXAnchor),
+            uploadInnerContainer.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+            uploadInnerContainer.widthAnchor.constraint(equalTo: contentView.widthAnchor, multiplier: 0.45),
+            uploadInnerContainer.heightAnchor.constraint(equalTo: uploadInnerContainer.widthAnchor),
+            
+            // Icon view (Sẽ chỉnh constraint động tùy loại)
         ])
-        
-        layer.cornerRadius = 12
-        clipsToBounds = true
-        
-        // Shadow cho cell
-        layer.shadowColor = UIColor.black.cgColor
-        layer.shadowOpacity = 0.1
-        layer.shadowOffset = CGSize(width: 0, height: 2)
-        layer.shadowRadius = 4
-        layer.masksToBounds = false
     }
     
-    required init?(coder: NSCoder) { fatalError() }
-    
-    // Hàm cập nhật viền dựa trên trạng thái select và loại nút
-    private func updateBorder() {
-        if isSelected {
-            // Đang chọn -> Viền dày màu tím/xanh đậm
-            layer.borderWidth = 3
-            layer.borderColor = UIColor(hex: "#D958F6").cgColor
-        } else {
-            // Không chọn
-            if isBordered {
-                // Nếu là nút Upload/White -> Viền mỏng màu xám/xanh
-                layer.borderWidth = 1
-                layer.borderColor = UIColor.lightGray.cgColor
-            } else {
-                // Ảnh thường -> Không viền
-                layer.borderWidth = 0
-                layer.borderColor = nil
-            }
+    // MARK: - Logic Update
+    override var isSelected: Bool {
+        didSet {
+            updateAppearance()
         }
     }
     
     func configure(imageName: String?, isUploadButton: Bool = false, isWhiteButton: Bool = false) {
-        // Reset trạng thái
+        self.isUploadType = isUploadButton
+        self.isWhiteType = isWhiteButton
+        
+        // Reset UI
         imageView.image = nil
         iconView.isHidden = true
+        uploadInnerContainer.isHidden = true
+        imageView.backgroundColor = UIColor(hex: "#E0E0E0") // Màu nền mặc định
+        
+        // Remove cũ constraints của icon
+        iconView.constraints.forEach { if $0.firstAttribute == .centerX || $0.firstAttribute == .centerY { removeConstraint($0) } }
+        iconView.superview?.constraints.forEach {
+             if $0.firstItem as? NSObject == iconView || $0.secondItem as? NSObject == iconView {
+                 iconView.superview?.removeConstraint($0)
+             }
+        }
         
         if isUploadButton {
-            isBordered = true
-            imageView.backgroundColor = .white
-            iconView.image = UIImage(named: "uploadIcon")
+            // --- Cấu hình nút UPLOAD ---
+            imageView.isHidden = true // Ẩn nền chính, dùng nền trắng của cell
+            contentView.backgroundColor = .white
+            
+            uploadInnerContainer.isHidden = false // Hiện ô vuông nhỏ
+            
             iconView.isHidden = false
+            iconView.image = UIImage(named: "uploadIcon") ?? UIImage(systemName: "arrow.up")
+            
+            // Icon nằm giữa ô vuông nhỏ
+            NSLayoutConstraint.activate([
+                iconView.centerXAnchor.constraint(equalTo: uploadInnerContainer.centerXAnchor),
+                iconView.centerYAnchor.constraint(equalTo: uploadInnerContainer.centerYAnchor),
+                iconView.widthAnchor.constraint(equalTo: uploadInnerContainer.widthAnchor, multiplier: 0.4),
+                iconView.heightAnchor.constraint(equalTo: iconView.widthAnchor)
+            ])
             
         } else if isWhiteButton {
-            isBordered = true
+            // --- Cấu hình nút MÀU TRẮNG ---
+            imageView.isHidden = false
             imageView.backgroundColor = .white
             
+            // Có thể thêm icon check hoặc để trống tùy ý
+            iconView.isHidden = true
+            
         } else {
-            isBordered = false
-            // Load ảnh từ Assets
+            // --- Cấu hình ẢNH NỀN ---
+            imageView.isHidden = false
             if let name = imageName {
                 imageView.image = UIImage(named: name)
             }
-            // Màu nền backup nếu ảnh chưa load kịp (để tránh màu trắng lẫn vào)
-            imageView.backgroundColor = UIColor(hex: "#E0E0E0")
         }
         
-        updateBorder()
+        updateAppearance()
+    }
+    
+    private func updateAppearance() {
+        if isSelected {
+            // === ĐANG CHỌN ===
+            // Viền dày màu Tím/Xanh đậm bao quanh toàn bộ Cell
+            layer.borderWidth = 3
+            layer.borderColor = UIColor(hex: "#D958F6").cgColor // Màu tím như ảnh mẫu upload
+            
+            // Có thể thêm shadow nhẹ cho cả cell khi đang chọn (tùy thích)
+            layer.shadowOpacity = 0.2
+            layer.shadowOffset = CGSize(width: 0, height: 4)
+            layer.shadowRadius = 4
+            
+        } else {
+            // === KHÔNG CHỌN ===
+            layer.borderWidth = 0 // Xóa viền
+            layer.borderColor = nil
+            
+            // [YÊU CẦU] Xóa shadow khi không chọn
+            layer.shadowOpacity = 0
+            layer.shadowRadius = 0
+            layer.shadowOffset = .zero
+            
+            // Ngoại lệ: Nếu là nút Upload, ô vuông bên trong nó vẫn có shadow (đã set ở phần init của uploadInnerContainer)
+            // Nếu là nút White, có thể thêm viền mỏng nhẹ để không bị chìm vào nền trắng
+            if isWhiteType {
+                layer.borderWidth = 1
+                layer.borderColor = UIColor.lightGray.withAlphaComponent(0.5).cgColor
+            }
+        }
     }
 }
 
@@ -125,13 +201,6 @@ class LevelCompletedViewController: UIViewController {
     private var selectedIndex: Int = 1
     
     // MARK: - UI Elements
-    private let fullScreenBackgroundView: UIImageView = {
-        let iv = UIImageView()
-        iv.image = UIImage(named: "BG")
-        iv.contentMode = .scaleAspectFill
-        return iv
-    }()
-    
     private let titleLabel: UILabel = {
         let l = UILabel()
         l.text = "SELECT BACKGROUND"
@@ -160,13 +229,20 @@ class LevelCompletedViewController: UIViewController {
     private let artworkContainer: UIView = {
         let v = UIView()
         v.backgroundColor = .white
-        v.layer.cornerRadius = 16
-        v.clipsToBounds = true
-        v.layer.shadowColor = UIColor.black.cgColor
-        v.layer.shadowOpacity = 0.3
-        v.layer.shadowOffset = CGSize(width: 0, height: 8)
+        v.layer.cornerRadius = 24
+        
+        // 1. Viền Trắng Dày
+        v.layer.borderWidth = 6
+        v.layer.borderColor = UIColor.white.cgColor
+        
+        // 2. Đổ bóng mềm
+        v.layer.shadowColor = UIColor(hex: "##0037FF").cgColor
+        v.layer.shadowOpacity = 0.35
+        v.layer.shadowOffset = CGSize(width: 10, height: 15)
         v.layer.shadowRadius = 15
-        v.layer.masksToBounds = false
+        
+        v.clipsToBounds = false
+        
         return v
     }()
     
@@ -185,8 +261,13 @@ class LevelCompletedViewController: UIViewController {
     // CollectionView chọn nền
     private var collectionView: UICollectionView!
     
-    private let continueButton: UIButton = {
-        let btn = UIButton(type: .custom)
+    private let continueButton: GradientButton = {
+        
+        let btn = GradientButton(colors: [
+            UIColor(hex: "#27A7FF"),
+            UIColor(hex: "#47B4FF"),
+            UIColor(hex: "#039AFF")
+        ])
         btn.setTitle("Continue", for: .normal)
         
         // 1. Font chữ đậm, to, có shadow cho chữ (như ảnh)
@@ -194,9 +275,6 @@ class LevelCompletedViewController: UIViewController {
         btn.setTitleColor(.white, for: .normal)
         btn.titleLabel?.shadowColor = UIColor(red: 0, green: 0, blue: 0, alpha: 0.2)
         btn.titleLabel?.shadowOffset = CGSize(width: 1, height: 1)
-        
-        // 2. Màu nền :
-        btn.backgroundColor = UIColor(hex: "#4A90E2")
         
         // 3. Bo góc tròn
         btn.layer.cornerRadius = 16
@@ -243,8 +321,11 @@ class LevelCompletedViewController: UIViewController {
     
     // MARK: - Setup UI
     private func setupUI() {
-        view.addSubview(fullScreenBackgroundView)
-        fullScreenBackgroundView.translatesAutoresizingMaskIntoConstraints = false
+        let bgView = AppBackgroundView()
+        view.addSubview(bgView)
+        bgView.frame = view.bounds
+        bgView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        view.sendSubviewToBack(bgView)
         
         view.addSubview(backButton)
         view.addSubview(titleLabel)
@@ -266,11 +347,6 @@ class LevelCompletedViewController: UIViewController {
         continueButton.addTarget(self, action: #selector(didTapContinue), for: .touchUpInside)
         
         NSLayoutConstraint.activate([
-            fullScreenBackgroundView.topAnchor.constraint(equalTo: view.topAnchor),
-            fullScreenBackgroundView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-            fullScreenBackgroundView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            fullScreenBackgroundView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            
             backButton.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 10),
             backButton.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20),
             backButton.widthAnchor.constraint(equalToConstant: 44),
@@ -280,9 +356,9 @@ class LevelCompletedViewController: UIViewController {
             titleLabel.centerXAnchor.constraint(equalTo: view.centerXAnchor),
             
             // Container 2:3
-            artworkContainer.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 30),
+            artworkContainer.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 20),
             artworkContainer.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            artworkContainer.widthAnchor.constraint(equalTo: view.widthAnchor, multiplier: 0.75),
+            artworkContainer.widthAnchor.constraint(equalTo: view.widthAnchor, multiplier: 0.65),
             artworkContainer.heightAnchor.constraint(equalTo: artworkContainer.widthAnchor, multiplier: 1.5),
             
             backgroundImageView.topAnchor.constraint(equalTo: artworkContainer.topAnchor),
@@ -293,20 +369,22 @@ class LevelCompletedViewController: UIViewController {
             // Canvas View: Căn giữa, Rộng 0.8, Tỉ lệ 1:1, Căn dọc 2/3
             canvasView.centerXAnchor.constraint(equalTo: artworkContainer.centerXAnchor),
             canvasView.centerYAnchor.constraint(equalTo: artworkContainer.centerYAnchor),
-            canvasView.widthAnchor.constraint(equalTo: artworkContainer.widthAnchor),
+            canvasView.widthAnchor.constraint(equalTo: artworkContainer.widthAnchor, multiplier: 0.95),
             canvasView.heightAnchor.constraint(equalTo: canvasView.widthAnchor),
             
-            continueButton.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -30),
+            continueButton.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -40),
             continueButton.centerXAnchor.constraint(equalTo: view.centerXAnchor),
             continueButton.widthAnchor.constraint(equalToConstant: 200),
             continueButton.heightAnchor.constraint(equalToConstant: 50)
         ])
+        
+        backgroundImageView.layer.cornerRadius = 24
     }
     
     private func setupCollectionView() {
         let layout = UICollectionViewFlowLayout()
         layout.scrollDirection = .horizontal
-        layout.itemSize = CGSize(width: 70, height: 90)
+        layout.itemSize = CGSize(width: 90, height: 115)
         layout.minimumLineSpacing = 15
         layout.sectionInset = UIEdgeInsets(top: 0, left: 20, bottom: 0, right: 20)
         
@@ -324,7 +402,7 @@ class LevelCompletedViewController: UIViewController {
             collectionView.bottomAnchor.constraint(equalTo: continueButton.topAnchor, constant: -30),
             collectionView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             collectionView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            collectionView.heightAnchor.constraint(equalToConstant: 100)
+            collectionView.heightAnchor.constraint(equalToConstant: 130)
         ])
         
         // Mặc định chọn item thứ 2 (white)
@@ -414,6 +492,28 @@ extension LevelCompletedViewController: UICollectionViewDelegate, UICollectionVi
         let picker = PHPickerViewController(configuration: config)
         picker.delegate = self
         present(picker, animated: true)
+    }
+    
+    // MARK: - Helper Class: Gradient Button
+    class GradientButton: UIButton {
+        private let gradientLayer = CAGradientLayer()
+        
+        init(colors: [UIColor]) {
+            super.init(frame: .zero)
+            // Cấu hình Gradient
+            gradientLayer.colors = colors.map { $0.cgColor }
+            gradientLayer.startPoint = CGPoint(x: 0.5, y: 0.0)
+            gradientLayer.endPoint = CGPoint(x: 0.5, y: 1.0)
+            layer.insertSublayer(gradientLayer, at: 0)
+        }
+        
+        required init?(coder: NSCoder) { fatalError() }
+        
+        override func layoutSubviews() {
+            super.layoutSubviews()
+            gradientLayer.frame = bounds
+            gradientLayer.cornerRadius = layer.cornerRadius
+        }
     }
 }
 
